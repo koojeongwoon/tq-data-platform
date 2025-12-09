@@ -1,0 +1,40 @@
+name: Scheduled Data Collection
+
+on:
+  schedule:
+    # Runs at 00:00 KST every day
+    # UTC is 9 hours behind KST, so 15:00 UTC previous day
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+
+jobs:
+  collect-data:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.13"
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+    - name: Run Data Collection
+      env:
+        # Secrets
+        API_KEYS: ${{ secrets.API_KEYS }}
+        CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        CLOUDFLARE_D1_DB_ID: ${{ secrets.CLOUDFLARE_D1_DB_ID }}
+        
+        # Config options
+        MAX_WORKERS: 10
+        REQUEST_TIMEOUT: 60
+      run: |
+        python main.py
