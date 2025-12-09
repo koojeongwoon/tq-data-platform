@@ -86,9 +86,19 @@ class WelfareService:
                 print(f"Page {page}: {len(ids)} items")
             time.sleep(0.1)
 
-        ids = all_ids
-        
-        print(f"Fetching Details for {len(ids)} items sequentially (rate limited)...")
+        # Filter out already collected IDs
+        existing_ids = self.d1.get_existing_policy_ids("central")
+        ids = [id for id in all_ids if id not in existing_ids]
+        skipped = len(all_ids) - len(ids)
+
+        if skipped > 0:
+            print(f"Skipping {skipped} already collected items.")
+
+        if not ids:
+            print("No new items to fetch.")
+            return
+
+        print(f"Fetching Details for {len(ids)} new items sequentially (rate limited)...")
         start_time = time.time()
 
         results = []
@@ -146,11 +156,19 @@ class WelfareService:
                 print(f"Page {page}: {len(ids)} items")
             time.sleep(0.1)
 
-        ids = all_ids
+        # Filter out already collected IDs
+        existing_ids = self.d1.get_existing_policy_ids("regional")
+        ids = [id for id in all_ids if id not in existing_ids]
+        skipped = len(all_ids) - len(ids)
+
+        if skipped > 0:
+            print(f"Skipping {skipped} already collected items.")
+
         if not ids:
+            print("No new items to fetch.")
             return
 
-        print(f"Fetching Details for {len(ids)} items sequentially (rate limited)...")
+        print(f"Fetching Details for {len(ids)} new items sequentially (rate limited)...")
         start_time = time.time()
 
         results = []

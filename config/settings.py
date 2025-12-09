@@ -6,9 +6,6 @@ load_dotenv()
 class Settings:
     # 여러 API 키 지원 (콤마로 구분)
     API_KEYS = [k.strip() for k in os.getenv("API_KEYS", "").split(",") if k.strip()]
-    API_KEY = os.getenv("API_KEY")  # 단일 키 (호환성)
-    if API_KEY and API_KEY not in API_KEYS:
-        API_KEYS.insert(0, API_KEY)
     API_BASE_URL = os.getenv("API_BASE_URL")
     CENTRAL_LIST_URL = os.getenv("CENTRAL_LIST_URL")
     CENTRAL_DETAILED_URL = os.getenv("CENTRAL_DETAILED_URL")

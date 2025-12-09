@@ -52,7 +52,7 @@ class D1Client:
         }
 
         try:
-            response = requests.post(self.base_url, headers=headers, json=queries)
+            response = requests.post(self.base_url, headers=headers, json={"batch": queries})
             response.raise_for_status()
             return response.json()
         except requests.RequestException as e:
@@ -79,3 +79,24 @@ class D1Client:
             print("D1: Table 'welfare_collections' verified/created.")
         else:
             print("D1: Failed to verify/create table.")
+
+    def get_existing_policy_ids(self, source_type: str = None) -> set:
+        """
+        Returns a set of policy_ids that already exist in the database.
+        Optionally filter by source_type ('central' or 'regional').
+        """
+        if source_type:
+            sql = "SELECT policy_id FROM welfare_collections WHERE source_type = ?"
+            result = self.execute_query(sql, [source_type])
+        else:
+            sql = "SELECT policy_id FROM welfare_collections"
+            result = self.execute_query(sql)
+
+        if not result or not result.get("success"):
+            return set()
+
+        try:
+            rows = result.get("result", [{}])[0].get("results", [])
+            return {row["policy_id"] for row in rows}
+        except (IndexError, KeyError, TypeError):
+            return set()

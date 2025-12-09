@@ -32,11 +32,15 @@ class APIClient:
         path = endpoint.lstrip("/")
         return f"{base}/{path}"
 
-    def _get_xml_root(self, url: str, params: dict, retry_on_429: bool = True):
+    def _get_xml_root(self, url: str, params: dict, retry_on_429: bool = True, _start_key_index: int = None):
         full_url = self._construct_url(url)
         # 현재 키로 params 업데이트
         params = params.copy()
         params["serviceKey"] = self.api_key
+
+        # 시작 키 인덱스 기록 (한 바퀴 돌면 종료하기 위해)
+        if _start_key_index is None:
+            _start_key_index = self.current_key_index
 
         try:
             response = requests.get(
@@ -50,10 +54,15 @@ class APIClient:
             # 429 에러 시 키 로테이션 후 재시도
             if hasattr(e, 'response') and e.response is not None and e.response.status_code == 429:
                 if retry_on_429 and self.rotate_key():
+                    # 한 바퀴 돌아서 원래 키로 돌아왔으면 종료
+                    if self.current_key_index == _start_key_index:
+                        print("모든 API 키가 rate limit 상태입니다. 수집을 종료합니다.")
+                        raise SystemExit(1)
                     print("429 발생, 다른 키로 재시도...")
-                    return self._get_xml_root(url, params, retry_on_429=True)
+                    return self._get_xml_root(url, params, retry_on_429=True, _start_key_index=_start_key_index)
                 else:
                     print("모든 API 키 소진됨")
+                    raise SystemExit(1)
             print(f"Error fetching data from {full_url}: {e}")
             return None
 
