@@ -10,10 +10,23 @@ def main():
     
     service = WelfareService()
     
-    service.process_central_welfare()
-    service.process_regional_welfare()
+    
+    # Batch Job Execution
+    from batch.core import Job
+    from batch.steps import CentralWelfareStep, RegionalWelfareStep, NormalizationStep
 
-    print("\nNote: Database save is skipped as requested.")
+    job = Job(
+        name="Welfare Data Enhancement Job",
+        steps=[
+            CentralWelfareStep(service),
+            RegionalWelfareStep(service),
+            NormalizationStep(service)
+        ]
+    )
+    
+    job.run()
+
+    print("\nJob execution finished.")
 
 if __name__ == "__main__":
     main()

@@ -61,24 +61,84 @@ class D1Client:
                 print(f"Response: {e.response.text}")
             return None
 
-    def create_table_if_not_exists(self):
+    def init_db(self):
         """
-        Creates the welfare_collections table if it doesn't exist.
+        Creates all necessary tables if they don't exist.
         """
-        sql = """
-        CREATE TABLE IF NOT EXISTS welfare_collections (
-            policy_id TEXT PRIMARY KEY,
-            source_type TEXT,
-            policy_title TEXT,
-            raw_data TEXT,
-            collected_at INTEGER
-        );
-        """
-        result = self.execute_query(sql)
+        queries = []
+        
+        # 1. Raw Collections Table
+        queries.append({
+            "sql": """
+            CREATE TABLE IF NOT EXISTS welfare_collections (
+                policy_id TEXT PRIMARY KEY,
+                source_type TEXT,
+                policy_title TEXT,
+                raw_data TEXT,
+                collected_at INTEGER
+            );
+            """,
+            "params": []
+        })
+
+        # 2. Main Policy Table
+        queries.append({
+            "sql": """
+            CREATE TABLE IF NOT EXISTS t_welfare_policies (
+                policy_id TEXT PRIMARY KEY,
+                title TEXT,
+                ministry TEXT,
+                summary TEXT,
+                content TEXT,
+                url TEXT,
+                last_updated INTEGER
+            );
+            """,
+            "params": []
+        })
+
+        # 3. Conditions Table
+        queries.append({
+            "sql": """
+            CREATE TABLE IF NOT EXISTS t_welfare_conditions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                policy_id TEXT,
+                age_min INTEGER,
+                age_max INTEGER,
+                gender TEXT,
+                region TEXT,
+                employment_status TEXT,
+                disability_yn TEXT,
+                pregnancy_birth_yn TEXT,
+                childcare_yn TEXT,
+                FOREIGN KEY(policy_id) REFERENCES t_welfare_policies(policy_id)
+            );
+            """,
+            "params": []
+        })
+
+        # 4. Categories Table
+        queries.append({
+            "sql": """
+            CREATE TABLE IF NOT EXISTS t_welfare_categories (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                policy_id TEXT,
+                category_name TEXT,
+                FOREIGN KEY(policy_id) REFERENCES t_welfare_policies(policy_id)
+            );
+            """,
+            "params": []
+        })
+
+        result = self.execute_batch(queries)
         if result and result.get("success"):
-            print("D1: Table 'welfare_collections' verified/created.")
+            print("D1: All tables verified/created.")
         else:
-            print("D1: Failed to verify/create table.")
+            print("D1: Failed to verify/create tables.")
+
+    # Deprecated alias for backward compatibility if needed, but safe to remove if I update calls.
+    # I will update the call site in welfare.py next.
+
 
     def get_existing_policy_ids(self, source_type: str = None) -> set:
         """
@@ -100,3 +160,19 @@ class D1Client:
             return {row["policy_id"] for row in rows}
         except (IndexError, KeyError, TypeError):
             return set()
+
+    def fetch_raw_policies(self, limit: int = 1000):
+        """
+        Fetches raw policy data for processing.
+        Returns a list of dicts: [{'policy_id': ..., 'raw_data': ...}, ...]
+        """
+        sql = "SELECT policy_id, raw_data FROM welfare_collections LIMIT ?"
+        result = self.execute_query(sql, [limit])
+        
+        if not result or not result.get("success"):
+            return []
+
+        try:
+            return result.get("result", [{}])[0].get("results", [])
+        except (IndexError, KeyError, TypeError):
+            return []
