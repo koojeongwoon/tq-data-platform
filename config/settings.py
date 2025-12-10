@@ -22,4 +22,7 @@ class Settings:
     CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
     CLOUDFLARE_D1_DB_ID = os.getenv("CLOUDFLARE_D1_DB_ID")
 
+    # OpenAI Settings
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+
 settings = Settings()
