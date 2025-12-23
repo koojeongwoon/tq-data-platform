@@ -1,6 +1,6 @@
 
 from .core import Step, JobContext
-from services.welfare import WelfareService
+from app.services.welfare import WelfareService
 
 class CentralWelfareStep(Step):
     def __init__(self, service: WelfareService):

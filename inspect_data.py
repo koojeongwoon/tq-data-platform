@@ -1,8 +1,8 @@
 
 import os
 import sys
-from api.client import APIClient
-from config.settings import settings
+from shared.clients.client import APIClient
+from shared.config.settings import settings
 
 # Verify settings are loaded
 print(f"Base URL: {settings.API_BASE_URL}")

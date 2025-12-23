@@ -1,0 +1,66 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+
+# Batch processing (배치 작업은 Docker 이미지에서 제외)
+batch/
+
+# Scripts and tests
+scripts/
+tests/
+test_*.py
+*_test.py
+*.test.py
+
+# Documentation
+*.md
+!README.md
+docs/
+
+# Development files
+.env
+.env.*
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Other
+chroma_policies.json
+inspect_data.py
+test_processing.py
+requirements.txt
+
+# Cache
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

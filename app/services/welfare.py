@@ -3,9 +3,9 @@ import json
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
-from api.client import APIClient
-from config.settings import settings
-from db.d1 import D1Client
+from shared.clients.client import APIClient
+from shared.config.settings import settings
+from shared.db.d1 import D1Client
 
 class WelfareService:
     def __init__(self):

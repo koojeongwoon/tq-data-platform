@@ -1,0 +1,62 @@
+[project]
+name = "tq-data-platform"
+version = "0.1.0"
+description = "Korean government welfare information aggregation service"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.31.0",
+    "sqlalchemy>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "xmltodict>=0.13.0",
+    "openai>=1.0.0",
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "httpx>=0.24.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+# Batch dependencies (GitHub Actions only)
+batch = [
+    "requests>=2.31.0",
+    "sqlalchemy>=2.0.0",
+    "python-dotenv>=1.0.0",
+    "xmltodict>=0.13.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+# Include app and shared directories for deployment builds
+packages = ["app", "shared"]
+exclude = [
+    "batch/",
+    "scripts/",
+    "*.test.py",
+    "test_*.py",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W"]
+ignore = []
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

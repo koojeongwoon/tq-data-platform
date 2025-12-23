@@ -1,5 +1,5 @@
-from db.database import engine, Base
-from services.welfare import WelfareService
+from shared.db.database import engine, Base
+from app.services.welfare import WelfareService
 
 def init_db():
     Base.metadata.create_all(bind=engine)

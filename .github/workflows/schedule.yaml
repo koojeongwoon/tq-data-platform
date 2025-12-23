@@ -37,4 +37,4 @@ jobs:
         MAX_WORKERS: 10
         REQUEST_TIMEOUT: 60
       run: |
-        python main.py
+        python batch/main.py

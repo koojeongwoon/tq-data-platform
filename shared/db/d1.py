@@ -1,6 +1,6 @@
 import requests
 import json
-from config.settings import settings
+from shared.config.settings import settings
 
 class D1Client:
     def __init__(self):

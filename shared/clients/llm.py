@@ -2,7 +2,7 @@
 Cloudflare Workers AI LLM Client
 """
 import requests
-from config.settings import settings
+from shared.config.settings import settings
 
 
 class CloudflareLLM:

@@ -1,7 +1,7 @@
 
 import re
 import xml.etree.ElementTree as ET
-from db.d1 import D1Client
+from shared.db.d1 import D1Client
 
 class WelfareProcessor:
     def __init__(self, d1_client: D1Client = None):

@@ -1,0 +1,50 @@
+version: '3.8'
+
+services:
+  # 기본 개발 모드 (핫 리로드)
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: tq-data-platform-api
+    ports:
+      - "8000:8000"
+    environment:
+      - CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
+      - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
+      - CLOUDFLARE_D1_DB_ID=${CLOUDFLARE_D1_DB_ID}
+      - API_KEYS=${API_KEYS:-}
+      - DB_URL=${DB_URL:-sqlite:///./welfare.db}
+      - QDRANT_HOST=qdrant
+      - QDRANT_PORT=6333
+    volumes:
+      # 코드 변경 시 자동 반영
+      - ./app:/app/app
+      - ./shared:/app/shared
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    restart: unless-stopped
+    networks:
+      - tq-network
+    depends_on:
+      - qdrant
+
+  # Qdrant Vector Database
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: tq-qdrant
+    ports:
+      - "6333:6333"  # HTTP API
+      - "6334:6334"  # gRPC API
+    volumes:
+      - qdrant_storage:/qdrant/storage
+    networks:
+      - tq-network
+    restart: unless-stopped
+
+
+networks:
+  tq-network:
+    driver: bridge
+
+volumes:
+  qdrant_storage:

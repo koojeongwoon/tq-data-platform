@@ -5,7 +5,7 @@ import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from db.d1 import D1Client
+from shared.db.d1 import D1Client
 from scripts.normalize_policy import parse_policy_xml
 
 
