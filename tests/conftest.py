@@ -5,7 +5,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from shared.db.d1 import D1Client
 
 
 @pytest.fixture

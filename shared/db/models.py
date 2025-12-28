@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Integer, String, JSON, DateTime
+from sqlalchemy import JSON, Column, DateTime, Integer, String
 from sqlalchemy.sql import func
+
 from .database import Base
+
 
 class RawData(Base):
     __tablename__ = "raw_data"

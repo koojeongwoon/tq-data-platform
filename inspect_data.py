@@ -1,6 +1,4 @@
 
-import os
-import sys
 from shared.clients.client import APIClient
 from shared.config.settings import settings
 

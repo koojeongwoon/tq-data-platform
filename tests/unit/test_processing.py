@@ -1,6 +1,5 @@
+from batch.services.processor import WelfareProcessor
 
-from app.services.processor import WelfareProcessor
-import xml.etree.ElementTree as ET
 
 # Mock D1 Client to capture queries instead of sending to API
 class MockD1Client:

@@ -14,9 +14,15 @@ services:
       - CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN}
       - CLOUDFLARE_D1_DB_ID=${CLOUDFLARE_D1_DB_ID}
       - API_KEYS=${API_KEYS:-}
-      - DB_URL=${DB_URL:-sqlite:///./welfare.db}
+      - DB_URL=postgresql://${POSTGRES_USER:-welfare_user}:${POSTGRES_PASSWORD:-welfare_password}@postgres:5432/${POSTGRES_DB:-welfare_db}
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=${POSTGRES_DB:-welfare_db}
+      - POSTGRES_USER=${POSTGRES_USER:-welfare_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-welfare_password}
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
+      - USE_EMBEDDINGS=${USE_EMBEDDINGS:-true}
     volumes:
       # 코드 변경 시 자동 반영
       - ./app:/app/app
@@ -26,9 +32,34 @@ services:
     networks:
       - tq-network
     depends_on:
-      - qdrant
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
 
-  # Qdrant Vector Database
+  # PostgreSQL Database (for keyword search)
+  postgres:
+    image: postgres:16-alpine
+    container_name: tq-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-welfare_db}
+      - POSTGRES_USER=${POSTGRES_USER:-welfare_user}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-welfare_password}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./shared/db/schema/postgres_init.sql:/docker-entrypoint-initdb.d/init_db.sql
+    networks:
+      - tq-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U welfare_user -d welfare_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Qdrant Vector Database (for semantic search)
   qdrant:
     image: qdrant/qdrant:latest
     container_name: tq-qdrant
@@ -47,4 +78,5 @@ networks:
     driver: bridge
 
 volumes:
+  postgres_data:
   qdrant_storage:

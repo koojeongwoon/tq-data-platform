@@ -29,10 +29,13 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 batch/main.py (Batch Job Entry Point)
     │
     ▼
-WelfareService (app/services/welfare.py)
+Batch Steps (batch/steps.py)
     │
-    ├── APIClient (shared/clients/client.py) ──► Public Data API (data.go.kr)
+    ├── CentralWelfareStep ──► WelfareCollector (batch/services/welfare.py)
+    ├── RegionalWelfareStep ──► WelfareCollector (batch/services/welfare.py)
+    └── ChromaConversionStep ──► ChromaConverter (batch/services/chroma_converter.py)
     │
+    └── APIClient (shared/clients/client.py) ──► Public Data API (data.go.kr)
     └── D1Client (shared/db/d1.py) ──► Cloudflare D1 Cloud Storage
 
 app/main.py (FastAPI Server Entry Point)
@@ -45,11 +48,11 @@ API Endpoints (/welfare/policies, /health, etc.)
 Settings (shared/config/settings.py) - Centralized env-based configuration
 ```
 
-**Data Flow:**
-1. WelfareService fetches list of welfare service IDs from public API (XML)
-2. Concurrently fetches details for each ID using ThreadPoolExecutor
-3. Parses XML responses and extracts policy data
-4. Saves records to Cloudflare D1 with upsert logic
+**Batch Data Flow:**
+1. **Collection**: WelfareCollector fetches welfare service IDs from public API (XML)
+2. **Details**: Fetches detailed policy data for each ID (rate-limited sequential processing)
+3. **Storage**: Saves raw XML data to D1 (batch upserts)
+4. **Conversion**: ChromaConverter transforms D1 data to ChromaDB JSON format for vector search
 
 ## Key Configuration
 
@@ -65,28 +68,44 @@ Environment variables in `.env`:
 
 ```
 tq-data-platform/
-├── app/              # Application code (FastAPI server, business logic)
+├── app/              # Application code (FastAPI server)
 │   ├── main.py       # FastAPI server entry point
-│   └── services/     # Business logic (WelfareService, Processor)
+│   └── services/     # API-specific business logic
+├── batch/            # Batch job code (GitHub Actions, scheduled data collection)
+│   ├── main.py       # Batch job entry point
+│   ├── core.py       # Job framework
+│   ├── steps.py      # Job step definitions
+│   └── services/     # Batch-specific services
+│       ├── welfare.py          # WelfareCollector - data collection
+│       ├── chroma_converter.py # ChromaConverter - vector DB conversion
+│       └── processor.py        # WelfareProcessor - data normalization
 ├── shared/           # Common code shared by app and batch
 │   ├── clients/      # External service clients (Public Data Portal, LLM)
 │   ├── config/       # Settings and environment configuration
 │   └── db/           # Database clients (D1Client, SQLAlchemy)
-├── batch/            # Batch job code (GitHub Actions only)
-│   ├── main.py       # Batch job entry point
-│   ├── core.py       # Job framework
-│   └── steps.py      # Job steps
 ├── tests/            # pytest tests
 └── scripts/          # Development utilities
 ```
 
 ## Code Notes
 
-- **Separated concerns**: `app/` for API server, `batch/` for scheduled jobs, `shared/` for common code
-- **Import paths**: Use `from shared.config.settings import settings` for common code
-- SQLAlchemy models exist in `shared/db/models.py` but local DB persistence is currently disabled
-- D1Client gracefully handles missing credentials (logs warning, continues without cloud storage)
-- XML parsing is done manually with ElementTree
-- Concurrent processing uses `ThreadPoolExecutor` with configurable worker count
-- FastAPI server provides REST API endpoints for welfare policy data
-- Batch jobs run via GitHub Actions (schedule.yaml)
+- **Separated concerns**:
+  - `app/` - FastAPI server and API-specific logic
+  - `batch/` - Scheduled data collection jobs (self-contained, no app dependencies)
+  - `shared/` - Common utilities (DB clients, API clients, config)
+- **Import paths**:
+  - Batch services: `from batch.services.welfare import WelfareCollector`
+  - Shared utilities: `from shared.config.settings import settings`
+  - **Never import from app/ in batch/** - batch is independent
+- **Data Processing**:
+  - XML parsing with ElementTree
+  - Sequential processing with rate limiting (10 req/sec)
+  - Batch inserts to D1 (50 items per batch)
+  - ChromaConverter transforms D1 data to vector DB format
+- **Database**:
+  - Primary storage: Cloudflare D1 (cloud)
+  - D1Client gracefully handles missing credentials
+  - SQLAlchemy models exist but local DB is disabled
+- **Deployment**:
+  - Batch jobs run via GitHub Actions (schedule.yaml)
+  - FastAPI server provides REST API endpoints

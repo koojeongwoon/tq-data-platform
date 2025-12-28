@@ -1,12 +1,13 @@
 """
 노멀라이저 테스트 - D1에서 50개 데이터로 검증
 """
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from shared.db.d1 import D1Client
 from scripts.normalize_policy import parse_policy_xml
+from shared.db.d1 import D1Client
 
 
 def main():

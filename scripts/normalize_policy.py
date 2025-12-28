@@ -2,9 +2,10 @@
 XML to JSON 정규화 모듈
 복지 정책 raw XML을 정규화된 JSON으로 변환 및 LLM 요약 생성
 """
-import xmltodict
 import json
 import logging
+
+import xmltodict
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)

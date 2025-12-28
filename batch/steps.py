@@ -1,27 +1,55 @@
+"""Batch job steps for welfare data processing"""
 
-from .core import Step, JobContext
-from app.services.welfare import WelfareService
+from batch.services.welfare import WelfareCollector
+
+from .core import JobContext, Step
+
 
 class CentralWelfareStep(Step):
-    def __init__(self, service: WelfareService):
+    """Collect central government welfare policies"""
+
+    def __init__(self):
         super().__init__("Central Welfare Collection")
-        self.service = service
+        self.collector = WelfareCollector()
 
     def execute(self, context: JobContext):
-        self.service.process_central_welfare()
+        self.collector.collect_central_policies()
+
 
 class RegionalWelfareStep(Step):
-    def __init__(self, service: WelfareService):
+    """Collect regional government welfare policies"""
+
+    def __init__(self):
         super().__init__("Regional Welfare Collection")
-        self.service = service
+        self.collector = WelfareCollector()
 
     def execute(self, context: JobContext):
-        self.service.process_regional_welfare()
+        self.collector.collect_regional_policies()
 
-class NormalizationStep(Step):
-    def __init__(self, service: WelfareService):
-        super().__init__("Data Normalization")
-        self.service = service
+
+class PostgresSyncStep(Step):
+    """Sync D1 data to PostgreSQL for keyword search"""
+
+    def __init__(self, batch_size: int = 100):
+        super().__init__("PostgreSQL Sync")
+        self.batch_size = batch_size
 
     def execute(self, context: JobContext):
-        self.service.normalize_data()
+        from batch.services.data_sync import DataSyncService
+
+        sync_service = DataSyncService()
+        sync_service.sync_to_postgres(batch_size=self.batch_size)
+
+
+class QdrantSyncStep(Step):
+    """Sync D1 data to Qdrant for vector search"""
+
+    def __init__(self, batch_size: int = 100):
+        super().__init__("Qdrant Sync")
+        self.batch_size = batch_size
+
+    def execute(self, context: JobContext):
+        from batch.services.data_sync import DataSyncService
+
+        sync_service = DataSyncService()
+        sync_service.sync_to_qdrant(batch_size=self.batch_size)

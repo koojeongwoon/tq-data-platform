@@ -1,8 +1,8 @@
 """
 D1에서 복지 정책 1건 샘플 데이터를 가져와서 파일로 저장
 """
-import sys
 import json
+import sys
 from pathlib import Path
 
 # Add project root to path

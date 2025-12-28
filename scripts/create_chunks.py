@@ -1,10 +1,10 @@
 """
 D1에서 복지 정책 10건을 가져와서 청킹 처리 후 파일로 저장
 """
-import sys
+import html
 import json
 import re
-import html
+import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Dict, List

@@ -1,13 +1,15 @@
+"""Welfare data collection service for batch processing"""
+
 import time
-import json
 import xml.etree.ElementTree as ET
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError
 
 from shared.clients.client import APIClient
-from shared.config.settings import settings
 from shared.db.d1 import D1Client
 
-class WelfareService:
+
+class WelfareCollector:
+    """Collects welfare policy data from Public Data Portal"""
+
     def __init__(self):
         self.client = APIClient()
         self.d1 = D1Client()
@@ -60,7 +62,8 @@ class WelfareService:
         self.d1.execute_batch(queries)
         print(f"Batch saved {len(items)} items to D1.")
 
-    def process_central_welfare(self):
+    def collect_central_policies(self):
+        """Collect central government welfare policies"""
         print("\n--- Central Government Welfare Service ---")
 
         # First, get total count
@@ -130,7 +133,8 @@ class WelfareService:
         elapsed = time.time() - start_time
         print(f"Fetched {len(results)} details in {elapsed:.2f} seconds.")
 
-    def process_regional_welfare(self):
+    def collect_regional_policies(self):
+        """Collect regional government welfare policies"""
         print("\n--- Regional Government Welfare Service ---")
 
         # First, get total count
@@ -199,36 +203,3 @@ class WelfareService:
 
         elapsed = time.time() - start_time
         print(f"Fetched {len(results)} details in {elapsed:.2f} seconds.")
-
-    def normalize_data(self):
-        """
-        Fetches raw data from 'welfare_collections' and normalizes it into
-        't_welfare_policies', 't_welfare_conditions', 't_welfare_categories'.
-        """
-        print("\n--- Starting Data Normalization ---")
-        
-        # 1. Fetch Raw Data
-        raw_items = self.d1.fetch_raw_policies(limit=10000) # Ensure high limit or loop
-        if not raw_items:
-            print("No raw data found to process.")
-            return
-
-        print(f"Found {len(raw_items)} items to process.")
-        
-        # 2. Initialize Processor
-        from services.processor import WelfareProcessor
-        processor = WelfareProcessor(self.d1)
-        
-        # 3. Process Each Item
-        success_count = 0
-        for i, item in enumerate(raw_items):
-            policy_id = item.get("policy_id")
-            raw_data = item.get("raw_data")
-            
-            if processor.parse_and_save(policy_id, raw_data):
-                success_count += 1
-            
-            if (i + 1) % 100 == 0:
-                print(f"Processed {i + 1}/{len(raw_items)}...")
-
-        print(f"Normalization Complete. Successfully processed {success_count}/{len(raw_items)} items.")

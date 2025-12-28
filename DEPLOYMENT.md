@@ -180,24 +180,55 @@ tq-data-platform/
 cp .env.example .env
 # .env 파일 편집하여 Cloudflare 자격증명 추가
 
-# 2. 실행
+# 2. 빌드 (BGE-M3 모델 포함)
+docker-compose build
+# ⏱️ 첫 빌드 시 BGE-M3 모델 다운로드 (~2GB, 5-10분 소요)
+# ✅ 이후 재빌드/재배포 시 모델 즉시 사용 가능
+
+# 3. 실행
 docker-compose up
 
-# 3. 백그라운드 실행
+# 4. 백그라운드 실행
 docker-compose up -d
 
-# 4. 로그 확인
-docker-compose logs -f
+# 5. 로그 확인
+docker-compose logs -f api
 
-# 5. 중지
+# 6. 중지
 docker-compose down
 ```
 
 **특징:**
 - 🔥 코드 변경 시 자동 리로드 (핫 리로드)
 - 📁 app/, shared/ 디렉토리가 컨테이너에 마운트됨
+- 🧠 BGE-M3 모델이 이미지에 포함되어 즉시 사용 가능
 - 🌐 http://localhost:8000 접속
 - 📚 API 문서: http://localhost:8000/docs
+
+### 프로덕션 배포
+
+Docker 이미지는 BGE-M3 모델을 포함하고 있어 재배포 시에도 즉시 실행됩니다:
+
+```bash
+# 이미지 빌드
+docker build -t tq-data-platform:latest .
+
+# 실행
+docker run -p 8000:8000 \
+  -e CLOUDFLARE_ACCOUNT_ID="..." \
+  -e CLOUDFLARE_API_TOKEN="..." \
+  -e CLOUDFLARE_D1_DB_ID="..." \
+  -e POSTGRES_HOST="..." \
+  -e QDRANT_HOST="..." \
+  -e USE_EMBEDDINGS=true \
+  tq-data-platform:latest
+```
+
+**이미지 사양:**
+- 전체 이미지 크기: ~4-5GB (BGE-M3 모델 2GB 포함)
+- 첫 빌드 시간: 10-15분 (모델 다운로드 포함)
+- 재빌드 시간: 1-2분 (캐시 활용)
+- 재배포 시: 모델 다운로드 없이 즉시 실행
 
 ## API 서버 엔드포인트
 

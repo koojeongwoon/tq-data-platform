@@ -15,17 +15,27 @@ RUN uv venv /app/.venv && \
     . /app/.venv/bin/activate && \
     uv pip install -e .
 
+# Download BGE-M3 model (~2GB)
+# This runs during build time, so the model is included in the image
+RUN . /app/.venv/bin/activate && \
+    python -c "from sentence_transformers import SentenceTransformer; \
+               print('Downloading BGE-M3 model...'); \
+               model = SentenceTransformer('BAAI/bge-m3'); \
+               print(f'Model ready! Dimension: {model.get_sentence_embedding_dimension()}')"
+
 # Final stage
 FROM python:3.11-slim
 
 # Set working directory
 WORKDIR /app
 
-# Copy virtual environment from builder
+# Copy virtual environment from builder (includes downloaded model)
 COPY --from=builder /app/.venv /app/.venv
+COPY --from=builder /root/.cache/huggingface /root/.cache/huggingface
 
 # Copy application code (only app directory, not batch)
 COPY app ./app
+COPY shared ./shared
 COPY pyproject.toml ./
 
 # Set environment variables

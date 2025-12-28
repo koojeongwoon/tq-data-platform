@@ -1,6 +1,9 @@
-import requests
 from urllib.parse import unquote
+
+import requests
+
 from shared.config.settings import settings
+
 
 class APIClient:
     def __init__(self):

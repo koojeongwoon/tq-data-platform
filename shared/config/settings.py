@@ -1,4 +1,5 @@
 import os
+
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -21,6 +22,20 @@ class Settings:
     CLOUDFLARE_ACCOUNT_ID = os.getenv("CLOUDFLARE_ACCOUNT_ID")
     CLOUDFLARE_API_TOKEN = os.getenv("CLOUDFLARE_API_TOKEN")
     CLOUDFLARE_D1_DB_ID = os.getenv("CLOUDFLARE_D1_DB_ID")
+
+    # PostgreSQL Settings
+    POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+    POSTGRES_PORT = int(os.getenv("POSTGRES_PORT", 5432))
+    POSTGRES_DB = os.getenv("POSTGRES_DB", "welfare_db")
+    POSTGRES_USER = os.getenv("POSTGRES_USER", "welfare_user")
+    POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "welfare_password")
+
+    # Qdrant Settings
+    QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+    QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
+
+    # Embedding Settings
+    USE_EMBEDDINGS = os.getenv("USE_EMBEDDINGS", "true").lower() == "true"
 
     # OpenAI Settings
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")

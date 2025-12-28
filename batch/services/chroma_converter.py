@@ -1,14 +1,8 @@
-import json
-import sys
-import os
-from pathlib import Path
-import xml.etree.ElementTree as ET
-from typing import List, Dict, Any, Optional
+"""Convert D1 welfare policy data to ChromaDB JSON format"""
 
-# Add project root to Python path when running as script
-if __name__ == "__main__":
-    project_root = Path(__file__).parent.parent
-    sys.path.insert(0, str(project_root))
+import json
+import xml.etree.ElementTree as ET
+from typing import Any, Dict, List, Optional
 
 from shared.db.d1 import D1Client
 
@@ -216,27 +210,3 @@ class ChromaConverter:
             json.dump(chroma_documents, f, ensure_ascii=False, indent=2)
 
         print(f"Saved {len(chroma_documents)} policies to {output_path}")
-
-
-def main():
-    """Example usage"""
-    converter = ChromaConverter()
-
-    # D1에서 5개 정책 가져와서 ChromaDB 형식으로 변환
-    chroma_documents = converter.convert_policies_to_chroma_format(limit=5)
-
-    # 결과 출력
-    for i, doc in enumerate(chroma_documents, 1):
-        print(f"\n=== Policy {i} ===")
-        print(f"ID: {doc['id']}")
-        print(f"Title: {doc['metadata']['title']}")
-        print(f"Ministry: {doc['metadata']['ministry']}")
-        print(f"Category: {doc['metadata']['category']}")
-        print(f"Document preview: {doc['document'][:200]}...")
-
-    # JSON 파일로 저장
-    converter.save_to_json_file("chroma_policies.json", limit=5)
-
-
-if __name__ == "__main__":
-    main()
