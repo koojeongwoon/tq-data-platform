@@ -17,8 +17,9 @@ from app.middleware.error_handler import (
     http_exception_handler,
     validation_exception_handler,
 )
-from app.routers import health, search, welfare
-from shared.services.embedding import get_embedding_service
+from app.routers import chat, health, search, welfare
+from shared.config.settings import settings
+from shared.services.qdrant_service import QdrantService
 
 
 @asynccontextmanager
@@ -27,22 +28,32 @@ async def lifespan(app: FastAPI):
     Application lifespan manager
 
     Startup:
-    - Pre-load BGE-M3 embedding model (prevents first-request timeout)
+    - Pre-load embedding models (multilingual-e5-large + BM25)
 
     Shutdown:
     - Cleanup resources
     """
     # Startup
     print("\n🚀 Starting TQ Data Platform API...")
-    print("📦 Loading BGE-M3 embedding model...")
+    
+    # Pre-load embedding models
+    print("📦 Loading embedding models...")
     try:
-        embedding_service = get_embedding_service()
-        print("✅ Embedding model loaded successfully")
-        app.state.embedding_service = embedding_service
+        qdrant_service = QdrantService(
+            host=settings.QDRANT_HOST,
+            port=settings.QDRANT_PORT
+        )
+        # Trigger lazy loading of both models
+        qdrant_service._get_dense_model()   # multilingual-e5-large
+        qdrant_service._get_sparse_model()  # BM25
+        
+        # Store in app state for reuse
+        app.state.qdrant_service = qdrant_service
+        print("✅ Embedding models loaded successfully")
     except Exception as e:
-        print(f"⚠️  Warning: Failed to load embedding model: {e}")
-        print("   API will start without embedding capabilities")
-        app.state.embedding_service = None
+        print(f"⚠️  Warning: Failed to load embedding models: {e}")
+        print("   Models will be loaded on first request")
+        app.state.qdrant_service = None
 
     print("✅ API server ready\n")
 
@@ -79,6 +90,7 @@ app.add_exception_handler(Exception, general_exception_handler)
 app.include_router(health.router)
 app.include_router(welfare.router)
 app.include_router(search.router)
+app.include_router(chat.router)
 
 
 if __name__ == "__main__":
