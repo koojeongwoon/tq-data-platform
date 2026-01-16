@@ -17,7 +17,7 @@ from app.middleware.error_handler import (
     http_exception_handler,
     validation_exception_handler,
 )
-from app.routers import chat, health, search, welfare
+from app.routers import auth, chat, health, search, welfare
 from shared.config.settings import settings
 from shared.services.qdrant_service import QdrantService
 
@@ -88,6 +88,7 @@ app.add_exception_handler(Exception, general_exception_handler)
 
 # Register routers
 app.include_router(health.router)
+app.include_router(auth.router)
 app.include_router(welfare.router)
 app.include_router(search.router)
 app.include_router(chat.router)

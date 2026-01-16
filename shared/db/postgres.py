@@ -110,6 +110,25 @@ class PostgresClient:
             print(f"Write execution error: {e}")
             return False
 
+    def execute_ddl(self, sql: str) -> bool:
+        """
+        Execute DDL statements (CREATE, ALTER, DROP, etc.)
+
+        Args:
+            sql: DDL SQL string
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            with self.get_connection() as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute(sql)
+                    return True
+        except psycopg2.Error as e:
+            print(f"DDL execution error: {e}")
+            return False
+
     def execute_batch_insert(self, sql: str, params_list: List[tuple]) -> bool:
         """
         Execute batch INSERT for better performance

@@ -40,4 +40,7 @@ class Settings:
     # OpenAI Settings
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
+    # JWT Settings
+    JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-this-secret-key-in-production")
+
 settings = Settings()

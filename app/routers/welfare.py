@@ -3,7 +3,7 @@ Welfare Policy Router
 """
 from fastapi import APIRouter, HTTPException
 
-from shared.db.d1 import D1Client
+from shared.db.postgres import PostgresClient
 
 router = APIRouter(prefix="/welfare", tags=["Welfare"])
 
@@ -11,32 +11,31 @@ router = APIRouter(prefix="/welfare", tags=["Welfare"])
 @router.get("/policies")
 async def get_welfare_policies(limit: int = 100, offset: int = 0):
     """
-    D1에서 복지 정책 목록 조회
+    PostgreSQL에서 복지 정책 목록 조회
 
     Args:
         limit: 조회할 정책 개수 (기본: 100)
         offset: 시작 위치 (기본: 0)
     """
     try:
-        d1 = D1Client()
+        postgres = PostgresClient()
 
         query = f"""
-        SELECT policy_id, policy_name, policy_summary, target_audience,
-               support_details, application_method, created_at
+        SELECT policy_id, title, summary, ministry, source_type,
+               ctpv_nm, sgg_nm, support_provision, phone, website
         FROM welfare_policies
         ORDER BY created_at DESC
         LIMIT {limit} OFFSET {offset}
         """
 
-        result = d1.execute_query(query)
+        result = postgres.execute_query(query)
 
-        if result and "results" in result:
-            policies = result["results"]
+        if result:
             return {
-                "total": len(policies),
+                "total": len(result),
                 "limit": limit,
                 "offset": offset,
-                "policies": policies
+                "policies": result
             }
 
         return {"total": 0, "policies": []}
@@ -54,18 +53,11 @@ async def get_welfare_policy(policy_id: str):
         policy_id: 정책 ID
     """
     try:
-        d1 = D1Client()
+        postgres = PostgresClient()
+        result = postgres.get_policy_by_id(policy_id)
 
-        query = f"""
-        SELECT *
-        FROM welfare_policies
-        WHERE policy_id = '{policy_id}'
-        """
-
-        result = d1.execute_query(query)
-
-        if result and "results" in result and len(result["results"]) > 0:
-            return result["results"][0]
+        if result:
+            return result
 
         raise HTTPException(status_code=404, detail=f"Policy {policy_id} not found")
 
@@ -81,27 +73,19 @@ async def get_welfare_stats():
     복지 정책 통계 정보
     """
     try:
-        d1 = D1Client()
+        postgres = PostgresClient()
 
         # 전체 정책 수
-        total_query = "SELECT COUNT(*) as total FROM welfare_policies"
-        total_result = d1.execute_query(total_query)
+        total_count = postgres.count_policies()
 
-        total_count = 0
-        if total_result and "results" in total_result and len(total_result["results"]) > 0:
-            total_count = total_result["results"][0].get("total", 0)
-
-        # 최근 업데이트 시간
-        latest_query = "SELECT MAX(created_at) as latest FROM welfare_policies"
-        latest_result = d1.execute_query(latest_query)
-
-        latest_update = None
-        if latest_result and "results" in latest_result and len(latest_result["results"]) > 0:
-            latest_update = latest_result["results"][0].get("latest")
+        # 중앙/지방 정책 수
+        central_count = postgres.count_policies({"source_type": "central"})
+        regional_count = postgres.count_policies({"source_type": "regional"})
 
         return {
             "total_policies": total_count,
-            "latest_update": latest_update
+            "central_policies": central_count,
+            "regional_policies": regional_count
         }
 
     except Exception as e:
