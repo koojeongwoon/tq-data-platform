@@ -1,36 +1,14 @@
 """Search router for welfare policy semantic search"""
 
-from typing import List, Optional
+from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from app.auth import get_current_user
+from app.search.schemas import SearchResponse, SearchResult
 from shared.db.qdrant_client import QdrantClient
 
-router = APIRouter(prefix="/search", tags=["search"])
-
-
-class SearchResult(BaseModel):
-    """Search result response model"""
-
-    policy_id: str = Field(..., description="Policy ID")
-    score: float = Field(..., description="Similarity score (0-1)")
-    title: str = Field(..., description="Policy title")
-    summary: str = Field(..., description="Policy summary")
-    ministry: str = Field(..., description="Ministry name")
-    source_type: str = Field(..., description="central or regional")
-    ctpv_nm: Optional[str] = Field(None, description="Province/City name")
-    sgg_nm: Optional[str] = Field(None, description="District name")
-    phone: Optional[str] = Field(None, description="Contact phone")
-    website: Optional[str] = Field(None, description="Policy website")
-
-
-class SearchResponse(BaseModel):
-    """Search API response"""
-
-    query: str = Field(..., description="Search query")
-    total: int = Field(..., description="Number of results")
-    results: List[SearchResult] = Field(..., description="Search results")
+router = APIRouter(prefix="/search", tags=["Search"])
 
 
 @router.get("/semantic", response_model=SearchResponse)
@@ -39,9 +17,10 @@ async def semantic_search(
     q: str = Query(..., min_length=2, description="Search query"),
     source_type: Optional[str] = Query(None, description="Filter by source: central or regional"),
     limit: int = Query(10, ge=1, le=100, description="Number of results to return"),
+    current_user: dict = Depends(get_current_user),
 ):
     """
-    Semantic search for welfare policies using BGE-M3 embeddings
+    Semantic search for welfare policies using multilingual-e5-large + BM25 hybrid search
 
     **Features**:
     - Meaning-based search (finds similar policies even with different words)
@@ -54,7 +33,7 @@ async def semantic_search(
     - q="어르신 건강" → Find elderly healthcare policies
     """
     # Get embedding service from app state (pre-loaded at startup)
-    embedding_service = request.app.state.embedding_service
+    embedding_service = getattr(request.app.state, "embedding_service", None)
 
     if not embedding_service:
         raise HTTPException(
@@ -127,7 +106,7 @@ async def search_health(request: Request):
 
     Returns embedding service status and Qdrant connection
     """
-    embedding_service = request.app.state.embedding_service
+    embedding_service = getattr(request.app.state, "embedding_service", None)
     qdrant = QdrantClient()
 
     return {

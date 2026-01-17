@@ -11,7 +11,7 @@ cp .env.example .env
 # 필수 환경 변수 설정
 # - POSTGRES_* : PostgreSQL 접속 정보
 # - QDRANT_* : Qdrant 접속 정보
-# - USE_EMBEDDINGS : BGE-M3 사용 여부 (true/false)
+# - USE_EMBEDDINGS : multilingual-e5-large 사용 여부 (true/false)
 ```
 
 ### 2. 서버 시작
@@ -28,8 +28,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
 
 ```
 🚀 Starting TQ Data Platform API...
-📦 Loading BGE-M3 embedding model...
-Loading embedding model: BAAI/bge-m3...
+📦 Loading multilingual-e5-large embedding model...
+Loading embedding model: BAAI/multilingual-e5-large...
 ✅ Model loaded successfully (dimension: 1024)
 ✅ Embedding model loaded successfully
 ✅ API server ready
@@ -37,7 +37,7 @@ Loading embedding model: BAAI/bge-m3...
 INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
 ```
 
-**첫 실행 시**: BGE-M3 모델 다운로드로 ~5-10분 소요 (이후 캐시 사용)
+**첫 실행 시**: multilingual-e5-large 모델 다운로드로 ~5-10분 소요 (이후 캐시 사용)
 
 ## API 엔드포인트
 
@@ -69,6 +69,8 @@ curl http://localhost:8000/search/health
 ```
 
 ### 3. 의미 검색 (Semantic Search)
+
+> **사용 모델**: multilingual-e5-large (Dense) + BM25 (Sparse) 하이브리드 검색
 
 #### 기본 검색
 
@@ -329,7 +331,7 @@ watch -n 5 'curl -s http://localhost:8000/search/health | jq'
 
 ```bash
 # Dockerfile에서 모델 사전 다운로드
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-m3')"
+RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/multilingual-e5-large')"
 ```
 
 ### 2. 환경 변수 설정

@@ -10,14 +10,22 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from app.exceptions import TQBaseException
+from app.core.exceptions import TQBaseException
 from app.middleware.error_handler import (
     custom_exception_handler,
     general_exception_handler,
     http_exception_handler,
     validation_exception_handler,
 )
-from app.routers import auth, chat, health, search, welfare
+
+# Domain routers
+from app.auth import router as auth_router
+from app.chat import router as chat_router
+from app.onboarding import router as onboarding_router
+from app.welfare import router as welfare_router
+from app.search import router as search_router
+from app.core import health_router
+
 from shared.config.settings import settings
 from shared.services.qdrant_service import QdrantService
 
@@ -35,7 +43,7 @@ async def lifespan(app: FastAPI):
     """
     # Startup
     print("\n🚀 Starting TQ Data Platform API...")
-    
+
     # Pre-load embedding models
     print("📦 Loading embedding models...")
     try:
@@ -46,7 +54,7 @@ async def lifespan(app: FastAPI):
         # Trigger lazy loading of both models
         qdrant_service._get_dense_model()   # multilingual-e5-large
         qdrant_service._get_sparse_model()  # BM25
-        
+
         # Store in app state for reuse
         app.state.qdrant_service = qdrant_service
         print("✅ Embedding models loaded successfully")
@@ -87,11 +95,12 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_exception_handler(Exception, general_exception_handler)
 
 # Register routers
-app.include_router(health.router)
-app.include_router(auth.router)
-app.include_router(welfare.router)
-app.include_router(search.router)
-app.include_router(chat.router)
+app.include_router(health_router)
+app.include_router(auth_router)
+app.include_router(onboarding_router)
+app.include_router(welfare_router)
+app.include_router(search_router)
+app.include_router(chat_router)
 
 
 if __name__ == "__main__":

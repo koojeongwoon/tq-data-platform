@@ -1,6 +1,5 @@
-"""
-Health Check Router
-"""
+"""Health Check Router"""
+
 from fastapi import APIRouter
 
 router = APIRouter(tags=["Health"])

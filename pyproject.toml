@@ -16,6 +16,7 @@ dependencies = [
     "qdrant-client>=1.7.0",
     "sentence-transformers>=2.2.0",  # For BGE-M3 embeddings
     "torch>=2.0.0,<2.3.0",  # Required by sentence-transformers (macOS Intel compatible)
+    "numpy>=1.24.0,<2.0.0",  # torch compatibility (numpy 2.x not supported yet)
 ]
 
 [project.scripts]
@@ -40,6 +41,7 @@ batch = [
     "qdrant-client>=1.7.0",
     "sentence-transformers>=2.2.0",
     "torch>=2.0.0,<2.3.0",
+    "numpy>=1.24.0,<2.0.0",
 ]
 
 [build-system]

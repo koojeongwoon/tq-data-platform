@@ -1,15 +1,19 @@
-"""
-Welfare Policy Router
-"""
-from fastapi import APIRouter, HTTPException
+"""Welfare Policy Router"""
 
+from fastapi import APIRouter, Depends, HTTPException
+
+from app.auth import get_current_user
 from shared.db.postgres import PostgresClient
 
 router = APIRouter(prefix="/welfare", tags=["Welfare"])
 
 
 @router.get("/policies")
-async def get_welfare_policies(limit: int = 100, offset: int = 0):
+async def get_welfare_policies(
+    limit: int = 100,
+    offset: int = 0,
+    current_user: dict = Depends(get_current_user)
+):
     """
     PostgreSQL에서 복지 정책 목록 조회
 
@@ -45,7 +49,10 @@ async def get_welfare_policies(limit: int = 100, offset: int = 0):
 
 
 @router.get("/policies/{policy_id}")
-async def get_welfare_policy(policy_id: str):
+async def get_welfare_policy(
+    policy_id: str,
+    current_user: dict = Depends(get_current_user)
+):
     """
     특정 복지 정책 상세 조회
 
@@ -68,17 +75,12 @@ async def get_welfare_policy(policy_id: str):
 
 
 @router.get("/stats")
-async def get_welfare_stats():
-    """
-    복지 정책 통계 정보
-    """
+async def get_welfare_stats(current_user: dict = Depends(get_current_user)):
+    """복지 정책 통계 정보"""
     try:
         postgres = PostgresClient()
 
-        # 전체 정책 수
         total_count = postgres.count_policies()
-
-        # 중앙/지방 정책 수
         central_count = postgres.count_policies({"source_type": "central"})
         regional_count = postgres.count_policies({"source_type": "regional"})
 

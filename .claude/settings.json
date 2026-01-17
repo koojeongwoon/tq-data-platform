@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(python:*)",
-      "Bash(lsof:*)"
+      "Bash(lsof:*)",
+      "Bash(uv run python:*)"
     ]
   }
 }

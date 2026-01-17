@@ -1,14 +1,10 @@
-"""User model and schemas for authentication"""
+"""Auth schemas - 인증 관련 Pydantic 모델"""
 
 from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
-
-# =============================================================================
-# Pydantic Schemas
-# =============================================================================
 
 class UserCreate(BaseModel):
     """회원가입 요청"""
@@ -23,6 +19,13 @@ class UserLogin(BaseModel):
     password: str = Field(..., description="비밀번호")
 
 
+class UserProfile(BaseModel):
+    """사용자 프로필 (온보딩에서 수집)"""
+    region: Optional[str] = None
+    life_cycle: Optional[str] = None
+    interests: Optional[str] = None
+
+
 class UserResponse(BaseModel):
     """사용자 정보 응답"""
     id: int
@@ -30,6 +33,8 @@ class UserResponse(BaseModel):
     name: str
     created_at: datetime
     is_active: bool = True
+    onboarding_completed: bool = False
+    profile: Optional[UserProfile] = None
 
 
 class TokenResponse(BaseModel):
@@ -61,10 +66,7 @@ class TokenPayload(BaseModel):
     exp: datetime
 
 
-# =============================================================================
-# Database Model (SQL)
-# =============================================================================
-
+# Database DDL
 CREATE_USERS_TABLE = """
 CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -72,9 +74,31 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     name VARCHAR(50) NOT NULL,
     is_active BOOLEAN DEFAULT TRUE,
+    onboarding_completed BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+"""
+
+# ALTER TABLE for existing database
+ALTER_USERS_ADD_ONBOARDING = """
+ALTER TABLE users ADD COLUMN IF NOT EXISTS onboarding_completed BOOLEAN DEFAULT FALSE;
+"""
+
+CREATE_REFRESH_TOKENS_TABLE = """
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    token_hash VARCHAR(255) NOT NULL,
+    expires_at TIMESTAMP NOT NULL,
+    is_revoked BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    revoked_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_user_id ON refresh_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
+CREATE INDEX IF NOT EXISTS idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 """

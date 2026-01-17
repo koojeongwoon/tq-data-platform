@@ -1,26 +1,30 @@
-"""Authentication router - 회원가입, 로그인, 사용자 정보"""
-
-from datetime import datetime
+"""Auth router - 회원가입, 로그인, 사용자 정보"""
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.models.user import (
+from app.auth.schemas import (
+    ALTER_USERS_ADD_ONBOARDING,
+    CREATE_REFRESH_TOKENS_TABLE,
     CREATE_USERS_TABLE,
     RefreshRequest,
     RefreshResponse,
     TokenResponse,
     UserCreate,
     UserLogin,
+    UserProfile,
     UserResponse,
 )
-from app.services.auth_service import (
+from app.auth.service import (
     create_access_token,
     create_refresh_token,
     decode_access_token,
-    decode_refresh_token,
     get_access_token_expire_seconds,
     hash_password,
+    revoke_all_user_tokens,
+    revoke_refresh_token,
+    store_refresh_token,
+    validate_refresh_token,
     verify_password,
 )
 from shared.db.postgres import PostgresClient
@@ -29,14 +33,57 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 security = HTTPBearer()
 
 
-def _init_users_table():
-    """users 테이블 초기화"""
+def _init_tables():
+    """인증 관련 테이블 초기화"""
     postgres = PostgresClient()
     postgres.execute_ddl(CREATE_USERS_TABLE)
+    postgres.execute_ddl(CREATE_REFRESH_TOKENS_TABLE)
+    # Add onboarding_completed column if not exists
+    try:
+        postgres.execute_ddl(ALTER_USERS_ADD_ONBOARDING)
+    except Exception:
+        pass  # Column already exists
 
 
 # 앱 시작 시 테이블 생성
-_init_users_table()
+_init_tables()
+
+
+# =============================================================================
+# Helpers
+# =============================================================================
+
+def _get_user_profile(user_id: int, postgres: PostgresClient) -> UserProfile | None:
+    """사용자 프로필 조회 (user_preferences 테이블에서)"""
+    prefs = postgres.execute_query(
+        "SELECT region, life_stage, interest_themes FROM user_preferences WHERE user_id = %s",
+        (user_id,)
+    )
+    if prefs:
+        # interest_themes는 JSONB 타입 (list)
+        interests = prefs[0].get("interest_themes")
+        if isinstance(interests, list):
+            interests = ", ".join(interests) if interests else None
+        return UserProfile(
+            region=prefs[0].get("region"),
+            life_cycle=prefs[0].get("life_stage"),  # life_stage -> life_cycle
+            interests=interests
+        )
+    return None
+
+
+def _build_user_response(user: dict, postgres: PostgresClient) -> UserResponse:
+    """UserResponse 객체 생성"""
+    profile = _get_user_profile(user["id"], postgres)
+    return UserResponse(
+        id=user["id"],
+        email=user["email"],
+        name=user["name"],
+        created_at=user["created_at"],
+        is_active=user.get("is_active", True),
+        onboarding_completed=user.get("onboarding_completed", False),
+        profile=profile
+    )
 
 
 # =============================================================================
@@ -61,7 +108,7 @@ async def get_current_user(
     postgres = PostgresClient()
     user_id = payload.get("user_id") or int(payload["sub"])
     user = postgres.execute_query(
-        "SELECT id, email, name, is_active, created_at FROM users WHERE id = %s",
+        "SELECT id, email, name, is_active, onboarding_completed, created_at FROM users WHERE id = %s",
         (user_id,)
     )
 
@@ -106,9 +153,9 @@ async def register(body: UserCreate):
     # 사용자 생성
     result = postgres.execute_query(
         """
-        INSERT INTO users (email, password_hash, name)
-        VALUES (%s, %s, %s)
-        RETURNING id, email, name, is_active, created_at
+        INSERT INTO users (email, password_hash, name, onboarding_completed)
+        VALUES (%s, %s, %s, FALSE)
+        RETURNING id, email, name, is_active, onboarding_completed, created_at
         """,
         (body.email, password_hash, body.name)
     )
@@ -125,17 +172,14 @@ async def register(body: UserCreate):
     access_token = create_access_token(user["id"], user["email"])
     refresh_token = create_refresh_token(user["id"], user["email"])
 
+    # Refresh Token을 DB에 저장
+    store_refresh_token(user["id"], refresh_token)
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         expires_in=get_access_token_expire_seconds(),
-        user=UserResponse(
-            id=user["id"],
-            email=user["email"],
-            name=user["name"],
-            created_at=user["created_at"],
-            is_active=user["is_active"]
-        )
+        user=_build_user_response(user, postgres)
     )
 
 
@@ -151,7 +195,7 @@ async def login(body: UserLogin):
 
     # 사용자 조회
     result = postgres.execute_query(
-        "SELECT id, email, password_hash, name, is_active, created_at FROM users WHERE email = %s",
+        "SELECT id, email, password_hash, name, is_active, onboarding_completed, created_at FROM users WHERE email = %s",
         (body.email,)
     )
 
@@ -181,17 +225,14 @@ async def login(body: UserLogin):
     access_token = create_access_token(user["id"], user["email"])
     refresh_token = create_refresh_token(user["id"], user["email"])
 
+    # Refresh Token을 DB에 저장
+    store_refresh_token(user["id"], refresh_token)
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         expires_in=get_access_token_expire_seconds(),
-        user=UserResponse(
-            id=user["id"],
-            email=user["email"],
-            name=user["name"],
-            created_at=user["created_at"],
-            is_active=user["is_active"]
-        )
+        user=_build_user_response(user, postgres)
     )
 
 
@@ -202,8 +243,10 @@ async def refresh_token(body: RefreshRequest):
 
     - 유효한 Refresh Token으로 새 Access Token + Refresh Token 발급
     - 기존 Refresh Token은 무효화되고 새 토큰 쌍이 발급됨
+    - 이미 사용된 토큰 재사용 시 모든 토큰 무효화 (보안)
     """
-    payload = decode_refresh_token(body.refresh_token)
+    # DB에서 토큰 검증 (JWT + DB 상태 확인)
+    payload = validate_refresh_token(body.refresh_token)
 
     if not payload:
         raise HTTPException(
@@ -227,9 +270,15 @@ async def refresh_token(body: RefreshRequest):
             detail="사용자를 찾을 수 없습니다"
         )
 
+    # RTR: 기존 토큰 무효화
+    revoke_refresh_token(body.refresh_token)
+
     # RTR: 새 Access Token + Refresh Token 발급
     new_access_token = create_access_token(user_id, email)
     new_refresh_token = create_refresh_token(user_id, email)
+
+    # 새 Refresh Token을 DB에 저장
+    store_refresh_token(user_id, new_refresh_token)
 
     return RefreshResponse(
         access_token=new_access_token,
@@ -245,13 +294,8 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 
     Authorization: Bearer <token> 헤더 필요
     """
-    return UserResponse(
-        id=current_user["id"],
-        email=current_user["email"],
-        name=current_user["name"],
-        created_at=current_user["created_at"],
-        is_active=current_user["is_active"]
-    )
+    postgres = PostgresClient()
+    return _build_user_response(current_user, postgres)
 
 
 @router.post("/logout")
@@ -259,7 +303,10 @@ async def logout(current_user: dict = Depends(get_current_user)):
     """
     로그아웃
 
-    JWT는 서버에서 무효화할 수 없으므로, 클라이언트에서 토큰 삭제 필요.
-    이 엔드포인트는 로그아웃 확인용.
+    - 해당 사용자의 모든 Refresh Token을 무효화
+    - Access Token은 만료될 때까지 유효하지만, Refresh 불가
     """
+    # 해당 사용자의 모든 리프레시 토큰 무효화
+    revoke_all_user_tokens(current_user["id"])
+
     return {"message": "로그아웃 되었습니다", "user_id": current_user["id"]}
