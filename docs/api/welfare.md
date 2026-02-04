@@ -36,17 +36,19 @@ app/welfare/
 
 **Query Parameters**
 
-| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
-|----------|------|------|--------|------|
-| limit | integer | ❌ | 100 | 조회할 정책 개수 |
-| offset | integer | ❌ | 0 | 시작 위치 |
+| 파라미터 | 타입    | 필수 | 기본값 | 설명             |
+| -------- | ------- | ---- | ------ | ---------------- |
+| limit    | integer | ❌   | 100    | 조회할 정책 개수 |
+| offset   | integer | ❌   | 0      | 시작 위치        |
 
 **예시**
+
 ```http
 GET /welfare/policies?limit=10&offset=0
 ```
 
 **Response** `200 OK`
+
 ```json
 {
   "total": 50,
@@ -82,16 +84,18 @@ GET /welfare/policies?limit=10&offset=0
 
 **Path Parameters**
 
-| 파라미터 | 타입 | 설명 |
-|----------|------|------|
+| 파라미터  | 타입   | 설명                      |
+| --------- | ------ | ------------------------- |
 | policy_id | string | 정책 ID (예: WLF00000123) |
 
 **예시**
+
 ```http
 GET /welfare/policies/WLF00000123
 ```
 
 **Response** `200 OK`
+
 ```json
 {
   "policy_id": "WLF00000123",
@@ -115,26 +119,6 @@ GET /welfare/policies/WLF00000123
 |------|------|
 | 404 | 정책을 찾을 수 없음 |
 | 500 | 데이터베이스 조회 실패 |
-
----
-
-### GET `/welfare/stats` - 정책 통계
-
-전체 정책 통계 정보를 조회합니다.
-
-**Response** `200 OK`
-```json
-{
-  "total_policies": 1500,
-  "central_policies": 500,
-  "regional_policies": 1000
-}
-```
-
-**Errors**
-| 코드 | 설명 |
-|------|------|
-| 500 | 통계 조회 실패 |
 
 ---
 
@@ -162,10 +146,10 @@ class Policy(BaseModel):
 
 ### source_type 값
 
-| 값 | 설명 |
-|----|------|
-| central | 중앙정부 정책 (보건복지부, 국토교통부 등) |
-| regional | 지방정부 정책 (시/도, 시/군/구) |
+| 값       | 설명                                      |
+| -------- | ----------------------------------------- |
+| central  | 중앙정부 정책 (보건복지부, 국토교통부 등) |
+| regional | 지방정부 정책 (시/도, 시/군/구)           |
 
 ---
 
@@ -183,13 +167,13 @@ const getPolicies = async (limit = 10, offset = 0) => {
 // 정책 상세 조회
 const getPolicy = async (policyId) => {
   const res = await fetch(`/welfare/policies/${policyId}`);
-  if (!res.ok) throw new Error('Policy not found');
+  if (!res.ok) throw new Error("Policy not found");
   return res.json();
 };
 
 // 통계 조회
 const getStats = async () => {
-  const res = await fetch('/welfare/stats');
+  const res = await fetch("/welfare/stats");
   return res.json();
 };
 ```

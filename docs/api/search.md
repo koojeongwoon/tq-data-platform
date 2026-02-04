@@ -35,19 +35,21 @@ app/search/
 
 **Query Parameters**
 
-| 파라미터 | 타입 | 필수 | 기본값 | 설명 |
-|----------|------|------|--------|------|
-| q | string | ✅ | - | 검색어 (최소 2자) |
-| source_type | string | ❌ | null | `central` 또는 `regional` |
-| limit | integer | ❌ | 10 | 결과 개수 (1-100) |
+| 파라미터    | 타입    | 필수 | 기본값 | 설명                      |
+| ----------- | ------- | ---- | ------ | ------------------------- |
+| q           | string  | ✅   | -      | 검색어 (최소 2자)         |
+| source_type | string  | ❌   | null   | `central` 또는 `regional` |
+| limit       | integer | ❌   | 10     | 결과 개수 (1-100)         |
 
 **예시**
+
 ```http
 GET /search/semantic?q=임신부%20지원&limit=5
 GET /search/semantic?q=청년%20주거&source_type=central
 ```
 
 **Response** `200 OK`
+
 ```json
 {
   "query": "임신부 지원",
@@ -84,6 +86,7 @@ GET /search/semantic?q=청년%20주거&source_type=central
 검색 서비스의 상태를 확인합니다.
 
 **Response** `200 OK`
+
 ```json
 {
   "embedding_service": "ready",
@@ -94,11 +97,11 @@ GET /search/semantic?q=청년%20주거&source_type=central
 
 **상태 값**
 
-| 필드 | 가능한 값 | 설명 |
-|------|-----------|------|
-| embedding_service | `ready` / `not_loaded` | 임베딩 모델 로드 상태 |
-| qdrant | `ready` / `unavailable` | Qdrant 연결 상태 |
-| collection_count | integer | 인덱싱된 정책 청크 수 |
+| 필드              | 가능한 값               | 설명                  |
+| ----------------- | ----------------------- | --------------------- |
+| embedding_service | `ready` / `not_loaded`  | 임베딩 모델 로드 상태 |
+| qdrant            | `ready` / `unavailable` | Qdrant 연결 상태      |
+| collection_count  | integer                 | 인덱싱된 정책 청크 수 |
 
 ---
 
@@ -158,6 +161,7 @@ RRF (Reciprocal Rank Fusion) 점수 결합
 ### 3. 결과 반환
 
 검색 점수(score)는 0-1 범위로 정규화됩니다.
+
 - **0.8 이상**: 매우 관련성 높음
 - **0.6-0.8**: 관련성 있음
 - **0.4-0.6**: 약간 관련 있음
@@ -177,18 +181,18 @@ const search = async (query, options = {}) => {
 
   if (!res.ok) {
     if (res.status === 503) {
-      throw new Error('검색 서비스가 아직 준비되지 않았습니다.');
+      throw new Error("검색 서비스가 아직 준비되지 않았습니다.");
     }
-    throw new Error('검색 실패');
+    throw new Error("검색 실패");
   }
 
   return res.json();
 };
 
 // 사용 예
-const results = await search('임신부 지원', {
-  source_type: 'central',
-  limit: 5
+const results = await search("임신부 지원", {
+  source_type: "central",
+  limit: 5,
 });
 ```
 
