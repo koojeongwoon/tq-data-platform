@@ -43,7 +43,7 @@ def get_conversation(conversation_id: str, user_id: int) -> Optional[dict]:
     result = postgres.execute_query(
         """
         SELECT conversation_id, user_id, title, summary, current_intent,
-               collected_info, ready_to_search, is_archived, is_pinned,
+               collected_info, agent_data, ready_to_search, is_archived, is_pinned,
                created_at, updated_at, last_message_at
         FROM conversations
         WHERE conversation_id = %s AND user_id = %s
@@ -62,6 +62,7 @@ def get_conversation(conversation_id: str, user_id: int) -> Optional[dict]:
         "summary": row["summary"],
         "current_intent": row["current_intent"],
         "collected_info": row["collected_info"] or {},
+        "agent_data": row["agent_data"] or {},
         "ready_to_search": row["ready_to_search"],
         "is_archived": row["is_archived"],
         "is_pinned": row["is_pinned"],
@@ -123,6 +124,7 @@ def update_conversation(
     summary: str = None,
     current_intent: str = None,
     collected_info: dict = None,
+    agent_data: dict = None,
     ready_to_search: bool = None,
     is_archived: bool = None,
     is_pinned: bool = None
@@ -145,6 +147,9 @@ def update_conversation(
     if collected_info is not None:
         updates.append("collected_info = %s")
         params.append(json.dumps(collected_info))
+    if agent_data is not None:
+        updates.append("agent_data = %s")
+        params.append(json.dumps(agent_data))
     if ready_to_search is not None:
         updates.append("ready_to_search = %s")
         params.append(ready_to_search)

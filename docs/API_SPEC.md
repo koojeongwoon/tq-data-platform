@@ -8,13 +8,15 @@
 
 ## 도메인별 API 문서
 
-| 도메인 | 문서 | Prefix | 설명 |
-|--------|------|--------|------|
-| [Auth](api/auth.md) | 인증 API | `/auth` | 회원가입, 로그인, 토큰 갱신 |
-| [Welfare](api/welfare.md) | 복지 정책 API | `/welfare` | 정책 목록/상세 조회, 통계 |
-| [Search](api/search.md) | 검색 API | `/search` | 시맨틱 검색 (하이브리드) |
-| [Chat](api/chat.md) | 챗봇 API | `/chat` | RAG 챗봇, 대화형 챗봇 |
-| [Core](api/core.md) | Core 모듈 | `/` | 헬스 체크, 에러 처리 |
+| 도메인                          | 문서          | Prefix        | 설명                           |
+| ------------------------------- | ------------- | ------------- | ------------------------------ |
+| [Auth](api/auth.md)             | 인증 API      | `/auth`       | 회원가입, 로그인, 토큰 갱신    |
+| [Onboarding](api/onboarding.md) | 온보딩 API    | `/onboarding` | 대화형 회원가입 및 프로필 수집 |
+| [Dashboard](api/dashboard.md)   | 대시보드 API  | `/dashboard`  | 맞춤 요약 정보 및 정책 피드    |
+| [Welfare](api/welfare.md)       | 복지 정책 API | `/welfare`    | 정책 목록/상세 조회, 통계      |
+| [Search](api/search.md)         | 검색 API      | `/search`     | 시맨틱 검색 (하이브리드)       |
+| [Chat](api/chat.md)             | 챗봇 API      | `/chat`       | 멀티 에이전트 오케스트레이션   |
+| [Core](api/core.md)             | Core 모듈     | `/`           | 헬스 체크, 에러 처리           |
 
 ---
 
@@ -48,56 +50,68 @@ app/
 
 ## 기술 스택
 
-| 영역 | 기술 |
-|------|------|
-| Framework | FastAPI |
-| 인증 | JWT (Access + Refresh Token) |
-| 검색 | Qdrant + multilingual-e5-large + BM25 |
-| LLM | OpenAI GPT-4o-mini |
-| 데이터베이스 | PostgreSQL |
-| 대화 흐름 | LangGraph |
+| 영역         | 기술                                  |
+| ------------ | ------------------------------------- |
+| Framework    | FastAPI                               |
+| 인증         | JWT (Access + Refresh Token)          |
+| 검색         | Qdrant + multilingual-e5-large + BM25 |
+| LLM          | OpenAI GPT-4o-mini                    |
+| 데이터베이스 | PostgreSQL                            |
+| 대화 흐름    | LangGraph                             |
 
 ---
 
 ## 엔드포인트 요약
 
 ### Auth (`/auth`)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| POST | `/auth/register` | 회원가입 |
-| POST | `/auth/login` | 로그인 |
-| POST | `/auth/refresh` | 토큰 갱신 |
-| GET | `/auth/me` | 현재 사용자 정보 |
-| POST | `/auth/logout` | 로그아웃 |
+
+| Method | Endpoint         | 설명             |
+| ------ | ---------------- | ---------------- |
+| POST   | `/auth/register` | 회원가입         |
+| POST   | `/auth/login`    | 로그인           |
+| POST   | `/auth/refresh`  | 토큰 갱신        |
+| GET    | `/auth/me`       | 현재 사용자 정보 |
+| POST   | `/auth/logout`   | 로그아웃         |
 
 ### Welfare (`/welfare`)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/welfare/policies` | 정책 목록 조회 |
-| GET | `/welfare/policies/{policy_id}` | 정책 상세 조회 |
-| GET | `/welfare/stats` | 정책 통계 |
+
+| Method | Endpoint                        | 설명           |
+| ------ | ------------------------------- | -------------- |
+| GET    | `/welfare/policies`             | 정책 목록 조회 |
+| GET    | `/welfare/policies/{policy_id}` | 정책 상세 조회 |
+| GET    | `/welfare/stats`                | 정책 통계      |
 
 ### Search (`/search`)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/search/semantic` | 시맨틱 검색 |
-| GET | `/search/health` | 검색 서비스 상태 |
+
+| Method | Endpoint           | 설명             |
+| ------ | ------------------ | ---------------- |
+| GET    | `/search/semantic` | 시맨틱 검색      |
+| GET    | `/search/health`   | 검색 서비스 상태 |
+
+### Onboarding (`/onboarding`)
+
+| Method | Endpoint                   | 설명                          |
+| ------ | -------------------------- | ----------------------------- |
+| POST   | `/onboarding/registration` | 대화형 게스트 회원가입        |
+| POST   | `/onboarding/conversation` | 대화형 프로필 수집 (인증필요) |
+| POST   | `/onboarding/complete`     | 온보딩 완료 및 데이터 저장    |
 
 ### Chat (`/chat`)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| POST | `/chat` | 일반 챗봇 |
-| POST | `/chat/stream` | 스트리밍 챗봇 (SSE) |
-| POST | `/chat/conversation` | 대화형 챗봇 |
-| POST | `/chat/conversation/stream` | 대화형 스트리밍 (SSE) |
-| DELETE | `/chat/conversation/{session_id}` | 세션 삭제 |
-| GET | `/chat/health` | 챗봇 서비스 상태 |
+
+| Method | Endpoint                    | 설명                    |
+| ------ | --------------------------- | ----------------------- |
+| POST   | `/chat/conversation`        | 멀티 에이전트 복지 상담 |
+| POST   | `/chat/conversation/stream` | 상담 스트리밍 (SSE)     |
+| GET    | `/chat/conversations`       | 이전 대화 목록 조회     |
+| PATCH  | `/chat/conversations/{id}`  | 대화방 제목/상태 수정   |
+| GET    | `/chat/bookmarks`           | 북마크한 정책 목록      |
 
 ### Core (`/`)
-| Method | Endpoint | 설명 |
-|--------|----------|------|
-| GET | `/` | API 상태 |
-| GET | `/health` | 헬스 체크 |
+
+| Method | Endpoint  | 설명      |
+| ------ | --------- | --------- |
+| GET    | `/`       | API 상태  |
+| GET    | `/health` | 헬스 체크 |
 
 ---
 

@@ -7,15 +7,6 @@ from fastapi.responses import StreamingResponse
 
 from app.auth import get_current_user
 from app.chat.conversation import ConversationFlow
-from app.chat.onboarding import (
-    get_or_create_guest_session,
-    process_onboarding_message,
-)
-from app.chat.profile_collection import (
-    get_user_profile_status,
-    process_profile_message,
-    start_profile_collection,
-)
 from app.chat.orchestration import (
     add_message,
     create_conversation,
@@ -40,15 +31,10 @@ from app.chat.schemas import (
     ConversationResponse,
     CREATE_CHAT_SESSIONS_TABLE,
     CREATE_CONVERSATIONS_TABLE,
-    CREATE_GUEST_SESSIONS_TABLE,
     CREATE_MESSAGES_TABLE,
     CREATE_POLICY_VIEWS_TABLE,
     CREATE_USER_PREFERENCES_TABLE,
-    OnboardingRequest,
-    OnboardingResponse,
     PolicySource,
-    ProfileCollectionRequest,
-    ProfileCollectionResponse,
 )
 from app.chat.service import RAGService
 from shared.config.settings import settings
@@ -66,8 +52,6 @@ def _init_tables():
     postgres.execute_ddl(CREATE_MESSAGES_TABLE)
     postgres.execute_ddl(CREATE_USER_PREFERENCES_TABLE)
     postgres.execute_ddl(CREATE_POLICY_VIEWS_TABLE)
-    # 게스트 세션 (대화형 회원가입)
-    postgres.execute_ddl(CREATE_GUEST_SESSIONS_TABLE)
     # Legacy (호환성 유지)
     postgres.execute_ddl(CREATE_CHAT_SESSIONS_TABLE)
 
@@ -225,6 +209,7 @@ async def conversation(
             "messages": recent_messages,
             "user_profile": conv_data.get("collected_info", {}),
             "intent": conv_data.get("current_intent", ""),
+            "agent_data": conv_data.get("agent_data", {}),
             "ready_to_search": conv_data.get("ready_to_search", False),
         }
         # 장기 기억에서 프로필 보완
@@ -239,13 +224,18 @@ async def conversation(
 
         # 5. LangGraph 처리
         flow = ConversationFlow()
-        result = flow.process(body.message, session_state)
+        result = flow.process(
+            body.message, 
+            session_state,
+            pre_load_policy_id=body.pre_load_policy_id
+        )
 
         # 6. 대화방 상태 업데이트
         update_conversation(
             conversation_id, user_id,
             current_intent=result.get("intent"),
             collected_info=result["user_profile"],
+            agent_data=result.get("agent_data", {}),
             ready_to_search=result["ready_to_search"]
         )
 
@@ -271,13 +261,14 @@ async def conversation(
             rag_service = RAGService(qdrant_service=qdrant_service)
 
             filters = _build_filters_from_profile(result["user_profile"])
-            policies = rag_service.retrieve_context(
+            chat_result = rag_service.chat(
                 query=result["search_query"],
                 filters=filters,
                 top_k=5
             )
 
-            sources = [_format_policy_source(p).model_dump() for p in policies]
+            sources = [_format_policy_source(p).model_dump() for p in chat_result["sources"]]
+            policies = chat_result["sources"]
 
             # 정책 조회 기록
             for policy in policies:
@@ -289,13 +280,7 @@ async def conversation(
                     policy.get("score")
                 )
 
-            context = rag_service.build_context_prompt(policies)
-            answer = rag_service.generate_response(
-                query=result["search_query"],
-                context=context
-            )
-
-            result["response"] = f"{result['response']}\n\n{answer}"
+            result["response"] = f"{result['response']}\n\n{chat_result['answer']}"
 
         # 10. AI 응답 저장
         add_message(
@@ -349,19 +334,21 @@ async def conversation_stream(
                 rag_service = RAGService(qdrant_service=qdrant_service)
 
                 filters = _build_filters_from_profile(result["user_profile"])
+                
+                # Fetch policies once for UI/Tracking even if cache hits
+                # In a more optimized version, we could get this from cache as well
                 policies = rag_service.retrieve_context(
                     query=result["search_query"],
                     filters=filters,
                     top_k=5
                 )
-
                 sources_data = [_format_policy_source(p).model_dump() for p in policies]
                 yield f"event: sources\ndata: {json.dumps(sources_data, ensure_ascii=False)}\n\n"
 
-                context = rag_service.build_context_prompt(policies)
-                for chunk in rag_service.generate_response_stream(
+                for chunk in rag_service.chat_stream(
                     query=result["search_query"],
-                    context=context
+                    filters=filters,
+                    top_k=5
                 ):
                     yield f"event: answer\ndata: {json.dumps({'text': chunk}, ensure_ascii=False)}\n\n"
 
@@ -645,66 +632,6 @@ async def chat_health(request: Request):
     }
 
 
-# =============================================================================
-# Onboarding Endpoints (비인증 - 대화형 회원가입)
-# =============================================================================
-
-@router.post("/onboarding", response_model=OnboardingResponse)
-async def onboarding(request: Request, body: OnboardingRequest):
-    """
-    대화형 회원가입 엔드포인트 (비인증)
-
-    **흐름**:
-    1. 처음 호출 시 session_id 없음 → 새 게스트 세션 생성 + 인사 메시지 반환
-    2. 이후 호출 시 session_id 포함 → 단계별 정보 수집
-    3. 이름 → 이메일 → 비밀번호 → 지역(선택) → 확인 → 완료
-    4. 완료 시 access_token, refresh_token, user 정보 반환
-
-    **응답 필드**:
-    - response: AI 응답 메시지
-    - session_id: 게스트 세션 ID (다음 요청에 포함)
-    - step: 현재 단계 (ask_name, ask_email, ask_password, ask_region, confirm, complete)
-    - is_complete: 회원가입 완료 여부
-    - collected_info: 수집된 정보 (이름, 이메일, 지역)
-    - access_token: JWT Access Token (완료 시만)
-    - refresh_token: JWT Refresh Token (완료 시만)
-    - user: 사용자 정보 (완료 시만)
-    """
-    # 클라이언트 정보
-    ip_address = request.client.host if request.client else None
-    user_agent = request.headers.get("user-agent")
-
-    # 세션이 없으면 새로 생성
-    if not body.session_id:
-        session_id, initial_response = get_or_create_guest_session(
-            None, ip_address, user_agent
-        )
-        return OnboardingResponse(
-            response=initial_response["response"],
-            session_id=session_id,
-            step=initial_response["step"],
-            is_complete=False,
-            collected_info={}
-        )
-
-    # 메시지 처리
-    result = process_onboarding_message(
-        session_id=body.session_id,
-        message=body.message,
-        ip_address=ip_address,
-        user_agent=user_agent
-    )
-
-    return OnboardingResponse(
-        response=result["response"],
-        session_id=result["session_id"],
-        step=result["step"],
-        is_complete=result["is_complete"],
-        collected_info=result.get("collected_info", {}),
-        access_token=result.get("access_token"),
-        refresh_token=result.get("refresh_token"),
-        user=result.get("user")
-    )
 
 
 # =============================================================================
@@ -728,54 +655,3 @@ async def profile_status(current_user: dict = Depends(get_current_user)):
     }
 
 
-@router.post("/profile/start", response_model=ProfileCollectionResponse)
-async def start_profile(current_user: dict = Depends(get_current_user)):
-    """
-    프로필 수집 채팅 시작
-
-    가입 직후 또는 프로필이 미완성인 경우 호출하여 프로필 수집을 시작합니다.
-    """
-    user_id = current_user["id"]
-    result = start_profile_collection(user_id)
-
-    return ProfileCollectionResponse(
-        response=result["response"],
-        step=result["step"],
-        is_complete=result["is_complete"],
-        profile=result.get("profile", {})
-    )
-
-
-@router.post("/profile/collect", response_model=ProfileCollectionResponse)
-async def collect_profile(
-    body: ProfileCollectionRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    프로필 수집 채팅 메시지 처리
-
-    **흐름**:
-    1. 연령대 → 성별 → 지역 → 관심분야 → 완료
-    2. 각 단계에서 '건너뛰기' 입력 시 해당 필드 스킵
-
-    **current_step 값**:
-    - ask_age_group: 연령대 수집
-    - ask_gender: 성별 수집
-    - ask_region: 지역 수집
-    - ask_interests: 관심분야 수집
-    - complete: 완료
-    """
-    user_id = current_user["id"]
-
-    result = process_profile_message(
-        user_id=user_id,
-        message=body.message,
-        current_step=body.current_step
-    )
-
-    return ProfileCollectionResponse(
-        response=result["response"],
-        step=result["step"],
-        is_complete=result["is_complete"],
-        profile=result.get("profile", {})
-    )

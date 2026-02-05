@@ -1,6 +1,6 @@
 """Auth router - 회원가입, 로그인, 사용자 정보"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.auth.schemas import (
@@ -20,6 +20,7 @@ from app.auth.service import (
     create_refresh_token,
     decode_access_token,
     get_access_token_expire_seconds,
+    get_refresh_token_expire_seconds,
     hash_password,
     revoke_all_user_tokens,
     revoke_refresh_token,
@@ -126,13 +127,13 @@ async def get_current_user(
 # =============================================================================
 
 @router.post("/register", response_model=TokenResponse, status_code=status.HTTP_201_CREATED)
-async def register(body: UserCreate):
+async def register(body: UserCreate, response: Response):
     """
     회원가입
 
     - 이메일 중복 체크
     - 비밀번호 해시 저장
-    - 자동 로그인 (JWT 토큰 반환)
+    - 자동 로그인 (JWT 토큰 반환 + HttpOnly Cookie 설정)
     """
     postgres = PostgresClient()
 
@@ -175,21 +176,31 @@ async def register(body: UserCreate):
     # Refresh Token을 DB에 저장
     store_refresh_token(user["id"], refresh_token)
 
+    # Cookie 설정 (HttpOnly, Secure)
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=False,  # 개발 환경(HTTP)에서는 False, 배포 시 True 권장
+        samesite="lax",
+        max_age=get_refresh_token_expire_seconds()
+    )
+
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
+        # refresh_token=refresh_token, # Cookie로 전달하므로 Body에는 생략하거나 빈 값
         expires_in=get_access_token_expire_seconds(),
         user=_build_user_response(user, postgres)
     )
 
 
 @router.post("/login", response_model=TokenResponse)
-async def login(body: UserLogin):
+async def login(body: UserLogin, response: Response):
     """
     로그인
 
     - 이메일/비밀번호 검증
-    - JWT 토큰 반환
+    - Access Token(Body) + Refresh Token(Cookie) 반환
     """
     postgres = PostgresClient()
 
@@ -228,27 +239,54 @@ async def login(body: UserLogin):
     # Refresh Token을 DB에 저장
     store_refresh_token(user["id"], refresh_token)
 
+    # Cookie 설정
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=get_refresh_token_expire_seconds()
+    )
+
     return TokenResponse(
         access_token=access_token,
-        refresh_token=refresh_token,
         expires_in=get_access_token_expire_seconds(),
         user=_build_user_response(user, postgres)
     )
 
 
 @router.post("/refresh", response_model=RefreshResponse)
-async def refresh_token(body: RefreshRequest):
+async def refresh_token(
+    request: Request,
+    response: Response,
+    body: RefreshRequest = None  # Body는 Optional 처리
+):
     """
-    토큰 갱신 (RTR - Refresh Token Rotation)
+    토큰 갱신 (RTR)
 
-    - 유효한 Refresh Token으로 새 Access Token + Refresh Token 발급
-    - 기존 Refresh Token은 무효화되고 새 토큰 쌍이 발급됨
-    - 이미 사용된 토큰 재사용 시 모든 토큰 무효화 (보안)
+    - Cookie에서 refresh_token 추출 (우선순위)
+    - Body가 있다면 Body도 허용 (모바일 등)
     """
-    # DB에서 토큰 검증 (JWT + DB 상태 확인)
-    payload = validate_refresh_token(body.refresh_token)
+    # 1. Cookie에서 토큰 추출
+    token = request.cookies.get("refresh_token")
+    
+    # 2. Cookie에 없으면 Body 확인
+    if not token and body:
+        token = body.refresh_token
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="리프레시 토큰이 없습니다"
+        )
+
+    # DB에서 토큰 검증
+    payload = validate_refresh_token(token)
 
     if not payload:
+        # Invalid Token -> 쿠키 삭제
+        response.delete_cookie("refresh_token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="유효하지 않거나 만료된 리프레시 토큰입니다"
@@ -257,7 +295,6 @@ async def refresh_token(body: RefreshRequest):
     user_id = payload.get("user_id") or int(payload["sub"])
     email = payload.get("email")
 
-    # 사용자 존재 및 활성화 확인
     postgres = PostgresClient()
     user = postgres.execute_query(
         "SELECT id, is_active FROM users WHERE id = %s",
@@ -265,24 +302,34 @@ async def refresh_token(body: RefreshRequest):
     )
 
     if not user or not user[0].get("is_active"):
+        response.delete_cookie("refresh_token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="사용자를 찾을 수 없습니다"
         )
 
     # RTR: 기존 토큰 무효화
-    revoke_refresh_token(body.refresh_token)
+    revoke_refresh_token(token)
 
     # RTR: 새 Access Token + Refresh Token 발급
     new_access_token = create_access_token(user_id, email)
     new_refresh_token = create_refresh_token(user_id, email)
 
-    # 새 Refresh Token을 DB에 저장
+    # 새 Refresh Token DB 저장
     store_refresh_token(user_id, new_refresh_token)
+
+    # 새 Cookie 설정
+    response.set_cookie(
+        key="refresh_token",
+        value=new_refresh_token,
+        httponly=True,
+        secure=False,
+        samesite="lax",
+        max_age=get_refresh_token_expire_seconds()
+    )
 
     return RefreshResponse(
         access_token=new_access_token,
-        refresh_token=new_refresh_token,
         expires_in=get_access_token_expire_seconds()
     )
 
@@ -299,14 +346,18 @@ async def get_me(current_user: dict = Depends(get_current_user)):
 
 
 @router.post("/logout")
-async def logout(current_user: dict = Depends(get_current_user)):
+async def logout(response: Response, current_user: dict = Depends(get_current_user)):
     """
     로그아웃
 
     - 해당 사용자의 모든 Refresh Token을 무효화
     - Access Token은 만료될 때까지 유효하지만, Refresh 불가
+    - Cookie 제 (refresh_token)
     """
     # 해당 사용자의 모든 리프레시 토큰 무효화
     revoke_all_user_tokens(current_user["id"])
+
+    # Cookie 삭제
+    response.delete_cookie("refresh_token")
 
     return {"message": "로그아웃 되었습니다", "user_id": current_user["id"]}

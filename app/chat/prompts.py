@@ -1,41 +1,4 @@
-"""
-Welfare policy chatbot prompts
-
-All prompts used for:
-- RAG-based policy search and response generation
-- Intent classification
-- Slot extraction (user profile collection)
-- General question handling
-"""
-
-# =============================================================================
-# RAG Service Prompts
-# =============================================================================
-
-WELFARE_SYSTEM_PROMPT = """당신은 한국 정부 복지 정책 안내 전문 상담사입니다.
-사용자의 질문에 대해 제공된 복지 정책 정보를 바탕으로 친절하고 정확하게 답변해주세요.
-
-답변 가이드라인:
-1. 제공된 정책 정보만을 기반으로 답변하세요
-2. 정책명, 지원 내용, 신청 방법, 연락처 등 구체적인 정보를 포함하세요
-3. 여러 정책이 해당될 경우 각 정책을 구분하여 설명하세요
-4. 확실하지 않은 정보는 추측하지 말고, 담당 기관에 문의하도록 안내하세요
-5. 답변은 한국어로 작성하세요
-
-관련 정책 정보가 없는 경우:
-- 정중하게 관련 정책을 찾지 못했다고 안내하세요
-- 정부24(gov.kr) 또는 복지로(bokjiro.go.kr)를 통해 추가 검색을 권장하세요"""
-
-
-def build_rag_user_message(query: str, context: str) -> str:
-    """Build user message for RAG response generation"""
-    return f"""사용자 질문: {query}
-
-관련 복지 정책 정보:
-{context}
-
-위 정책 정보를 바탕으로 사용자의 질문에 답변해주세요."""
-
+"""Chat-domain specific prompts (Orchestration & Intents)"""
 
 # =============================================================================
 # Intent Classification Prompts
@@ -56,12 +19,20 @@ def build_intent_classification_prompt(message: str) -> str:
    - 지역, 생애주기(임신, 육아, 청년, 노인 등), 관심분야 언급 시 해당
 2. policy_detail: 특정 정책에 대해 더 알고 싶음
    - 예: "이 정책 자세히 알려줘", "신청 방법이 뭐야?"
-3. general_question: 복지 관련 일반 질문
+3. checklist: 서류 준비나 신청 자격 체크리스트가 필요한 의도
+   - 예: "어떤 서류 준비해야 돼?", "필요한 서류 알려줘", "체크리스트 만들어줘"
+4. reasoning: 복합 조건 필터링이나 지원금 계산이 필요한 의도
+   - 예: "나는 얼마 받을 수 있어?", "내 조건이면 혜택이 어떻게 돼?", "가구원이 3명인데 계산해줘"
+5. plain_language: 어려운 용어 설명이나 요약이 필요한 의도
+   - 예: "중위소득이 뭐야?", "어렵게 설명된 거 좀 쉽게 풀어서 말해줘", "한 줄 요약해줘"
+6. scenario: 가상 상황(퇴사, 이사, 결혼 등)에 따른 변화 시뮬레이션
+   - 예: "내가 직장을 그만두면 어떻게 돼?", "다른 지역으로 이사 가면 혜택이 바뀌나?"
+7. general_question: 복지 관련 일반 질문
    - 예: "복지란 무엇인가요?", "어디서 신청하나요?"
-4. chitchat: 인사, 잡담, 감사
-5. unknown: 위 어느 것에도 해당하지 않음
+8. chitchat: 인사, 잡담, 감사
+9. unknown: 위 어느 것에도 해당하지 않음
 
-의도 키워드만 응답 (welfare_search, policy_detail, general_question, chitchat, unknown):"""
+의도 키워드만 응답 (welfare_search, policy_detail, checklist, reasoning, plain_language, scenario, general_question, chitchat, unknown):"""
 
 
 # =============================================================================

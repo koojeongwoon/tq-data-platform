@@ -18,7 +18,13 @@ from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 
 from shared.config.settings import settings
-from shared.prompts import (
+from app.welfare.prompts import (
+    CHECKLIST_AGENT_SYSTEM,
+    REASONING_AGENT_SYSTEM,
+    PLAIN_LANGUAGE_AGENT_SYSTEM,
+    SCENARIO_AGENT_SYSTEM,
+)
+from .prompts import (
     INTENT_CLASSIFICATION_SYSTEM,
     SLOT_EXTRACTION_SYSTEM,
     GENERAL_QUESTION_SYSTEM,
@@ -44,11 +50,12 @@ class ConversationState(TypedDict):
     """Conversation state for LangGraph"""
     messages: Annotated[list, add_messages]
     user_profile: UserProfile
-    intent: str                    # welfare_search, policy_detail, general_question, chitchat, unknown
+    intent: str                    # welfare_search, policy_detail, checklist, reasoning, plain_language, scenario, general_question, chitchat, unknown
     missing_fields: list[str]
     ready_to_search: bool
     search_query: str
     policy_id: str                 # For policy_detail intent
+    agent_data: dict               # Persistent data for specialized agents (checklist items, calc results, etc.)
     fallback_count: int            # Track consecutive fallbacks
 
 
@@ -59,6 +66,10 @@ class ConversationState(TypedDict):
 # Intent types
 INTENT_WELFARE_SEARCH = "welfare_search"
 INTENT_POLICY_DETAIL = "policy_detail"
+INTENT_CHECKLIST = "checklist"
+INTENT_REASONING = "reasoning"
+INTENT_PLAIN_LANGUAGE = "plain_language"
+INTENT_SCENARIO = "scenario"
 INTENT_GENERAL_QUESTION = "general_question"
 INTENT_CHITCHAT = "chitchat"
 INTENT_UNKNOWN = "unknown"
@@ -139,6 +150,10 @@ class ConversationFlow:
         workflow.add_node("prepare_search", self._prepare_search)
         workflow.add_node("handle_chitchat", self._handle_chitchat)
         workflow.add_node("handle_general_question", self._handle_general_question)
+        workflow.add_node("handle_checklist", self._handle_checklist)
+        workflow.add_node("handle_reasoning", self._handle_reasoning)
+        workflow.add_node("handle_plain_language", self._handle_plain_language)
+        workflow.add_node("handle_scenario", self._handle_scenario)
         workflow.add_node("handle_fallback", self._handle_fallback)
 
         # Set entry point
@@ -151,6 +166,10 @@ class ConversationFlow:
             {
                 "welfare_search": "extract_info",
                 "policy_detail": "prepare_search",
+                "checklist": "handle_checklist",
+                "reasoning": "handle_reasoning",
+                "plain_language": "handle_plain_language",
+                "scenario": "handle_scenario",
                 "general_question": "handle_general_question",
                 "chitchat": "handle_chitchat",
                 "fallback": "handle_fallback"
@@ -173,6 +192,10 @@ class ConversationFlow:
         # Other flows end directly
         workflow.add_edge("handle_chitchat", END)
         workflow.add_edge("handle_general_question", END)
+        workflow.add_edge("handle_checklist", END)
+        workflow.add_edge("handle_reasoning", END)
+        workflow.add_edge("handle_plain_language", END)
+        workflow.add_edge("handle_scenario", END)
         workflow.add_edge("handle_fallback", END)
 
         return workflow.compile()
@@ -244,8 +267,12 @@ class ConversationFlow:
             ])
             intent = response.content.strip().lower()
 
-            valid_intents = [INTENT_WELFARE_SEARCH, INTENT_POLICY_DETAIL,
-                          INTENT_GENERAL_QUESTION, INTENT_CHITCHAT, INTENT_UNKNOWN]
+            valid_intents = [
+                INTENT_WELFARE_SEARCH, INTENT_POLICY_DETAIL,
+                INTENT_CHECKLIST, INTENT_REASONING,
+                INTENT_PLAIN_LANGUAGE, INTENT_SCENARIO,
+                INTENT_GENERAL_QUESTION, INTENT_CHITCHAT, INTENT_UNKNOWN
+            ]
             if intent in valid_intents:
                 return intent
         except Exception:
@@ -261,6 +288,14 @@ class ConversationFlow:
             return "welfare_search"
         elif intent == INTENT_POLICY_DETAIL:
             return "policy_detail"
+        elif intent == INTENT_CHECKLIST:
+            return "checklist"
+        elif intent == INTENT_REASONING:
+            return "reasoning"
+        elif intent == INTENT_PLAIN_LANGUAGE:
+            return "plain_language"
+        elif intent == INTENT_SCENARIO:
+            return "scenario"
         elif intent == INTENT_GENERAL_QUESTION:
             return "general_question"
         elif intent == INTENT_CHITCHAT:
@@ -325,7 +360,7 @@ class ConversationFlow:
 
             return updated_profile
 
-        except (json.JSONDecodeError, Exception):
+        except Exception:
             return current_profile
 
     # =========================================================================
@@ -464,6 +499,76 @@ class ConversationFlow:
         return state
 
     # =========================================================================
+    # Specialized Agent Handlers
+    # =========================================================================
+
+    def _handle_checklist(self, state: ConversationState) -> ConversationState:
+        """Handle checklist and document preparation agent"""
+        messages = state["messages"]
+        
+        # In a real scenario, we would pull the policy text here. 
+        # For now, we use a specialized prompt to guide the user.
+        try:
+            response = self.llm.invoke([
+                SystemMessage(content=CHECKLIST_AGENT_SYSTEM),
+                *messages[-5:] # Context
+            ])
+            answer = response.content
+        except Exception:
+            answer = "죄송합니다, 서류 안내를 처리하는 중 문제가 발생했습니다."
+
+        state["messages"].append(AIMessage(content=answer))
+        return state
+
+    def _handle_reasoning(self, state: ConversationState) -> ConversationState:
+        """Handle complex reasoning and calculation agent"""
+        messages = state["messages"]
+        
+        try:
+            response = self.llm.invoke([
+                SystemMessage(content=REASONING_AGENT_SYSTEM),
+                *messages[-5:] # Context
+            ])
+            answer = response.content
+        except Exception:
+            answer = "죄송합니다, 지원금 계산 및 추론 중 문제가 발생했습니다."
+
+        state["messages"].append(AIMessage(content=answer))
+        return state
+
+    def _handle_plain_language(self, state: ConversationState) -> ConversationState:
+        """Handle plain language translation agent"""
+        messages = state["messages"]
+        
+        try:
+            response = self.llm.invoke([
+                SystemMessage(content=PLAIN_LANGUAGE_AGENT_SYSTEM),
+                *messages[-5:] # Context
+            ])
+            answer = response.content
+        except Exception:
+            answer = "죄송합니다, 어려운 용어를 풀어서 설명하는 중 문제가 발생했습니다."
+
+        state["messages"].append(AIMessage(content=answer))
+        return state
+
+    def _handle_scenario(self, state: ConversationState) -> ConversationState:
+        """Handle scenario simulation agent"""
+        messages = state["messages"]
+        
+        try:
+            response = self.llm.invoke([
+                SystemMessage(content=SCENARIO_AGENT_SYSTEM),
+                *messages[-5:] # Context
+            ])
+            answer = response.content
+        except Exception:
+            answer = "죄송합니다, 시나리오를 시뮬레이션하는 중 문제가 발생했습니다."
+
+        state["messages"].append(AIMessage(content=answer))
+        return state
+
+    # =========================================================================
     # Fallback Handler
     # =========================================================================
 
@@ -487,7 +592,8 @@ class ConversationFlow:
     def process(
         self,
         user_message: str,
-        session_state: Optional[dict] = None
+        session_state: Optional[dict] = None,
+        pre_load_policy_id: Optional[str] = None
     ) -> dict:
         """
         Process user message and return response
@@ -495,6 +601,7 @@ class ConversationFlow:
         Args:
             user_message: User's input message
             session_state: Previous session state (for multi-turn)
+            pre_load_policy_id: Optional policy ID to focus on (dashboard integration)
 
         Returns:
             {
@@ -510,8 +617,10 @@ class ConversationFlow:
         if session_state:
             state = {
                 "messages": [
-                    HumanMessage(content=m["content"]) if m["role"] == "user"
-                    else AIMessage(content=m["content"])
+                    m if not isinstance(m, dict) else (
+                        HumanMessage(content=m["content"]) if m.get("role") == "user"
+                        else AIMessage(content=m["content"])
+                    )
                     for m in session_state.get("messages", [])
                 ],
                 "user_profile": session_state.get("user_profile", {}),
@@ -520,6 +629,7 @@ class ConversationFlow:
                 "ready_to_search": False,
                 "search_query": "",
                 "policy_id": "",
+                "agent_data": session_state.get("agent_data", {}),
                 "fallback_count": session_state.get("fallback_count", 0)
             }
         else:
@@ -531,11 +641,24 @@ class ConversationFlow:
                 "ready_to_search": False,
                 "search_query": "",
                 "policy_id": "",
+                "agent_data": {},
                 "fallback_count": 0
             }
 
         # Add new user message
-        state["messages"].append(HumanMessage(content=user_message))
+        if user_message:
+            state["messages"].append(HumanMessage(content=user_message))
+
+        # Handle contextual pre-loading
+        if pre_load_policy_id:
+            state["intent"] = "policy_detail"
+            if "agent_data" not in state:
+                state["agent_data"] = {}
+            state["agent_data"]["focus_policy_id"] = pre_load_policy_id
+            
+            # If no message from user, but policy pre-loaded, trigger specialized response
+            if not user_message:
+                state["messages"].append(HumanMessage(content=f"정책 ID {pre_load_policy_id}에 대해 대화를 시작해줘"))
 
         # Run graph
         result = self.graph.invoke(state)
@@ -555,6 +678,7 @@ class ConversationFlow:
             ],
             "user_profile": result["user_profile"],
             "intent": result["intent"],
+            "agent_data": result.get("agent_data", {}),
             "fallback_count": result.get("fallback_count", 0)
         }
 
@@ -564,5 +688,6 @@ class ConversationFlow:
             "ready_to_search": result["ready_to_search"],
             "search_query": result.get("search_query", ""),
             "user_profile": result["user_profile"],
+            "agent_data": result.get("agent_data", {}),
             "session_state": new_session_state
         }

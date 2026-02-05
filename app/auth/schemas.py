@@ -40,7 +40,7 @@ class UserResponse(BaseModel):
 class TokenResponse(BaseModel):
     """로그인 응답 (JWT 토큰)"""
     access_token: str
-    refresh_token: str
+    refresh_token: Optional[str] = None  # Cookie로 전달 시 생략 가능
     token_type: str = "bearer"
     expires_in: int = Field(..., description="Access Token 만료 시간 (초)")
     user: UserResponse
@@ -48,13 +48,13 @@ class TokenResponse(BaseModel):
 
 class RefreshRequest(BaseModel):
     """토큰 갱신 요청"""
-    refresh_token: str = Field(..., description="리프레시 토큰")
+    refresh_token: Optional[str] = Field(None, description="리프레시 토큰 (쿠키 사용 시 생략)")
 
 
 class RefreshResponse(BaseModel):
     """토큰 갱신 응답 (RTR - Refresh Token Rotation)"""
     access_token: str
-    refresh_token: str
+    refresh_token: Optional[str] = None  # Cookie로 전달 시 생략 가능
     token_type: str = "bearer"
     expires_in: int = Field(..., description="Access Token 만료 시간 (초)")
 

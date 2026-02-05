@@ -9,7 +9,7 @@ from openai import OpenAI
 
 from shared.config.settings import settings
 from shared.db.postgres import PostgresClient
-from shared.prompts import WELFARE_SYSTEM_PROMPT, build_rag_user_message
+from app.welfare.prompts import WELFARE_SYSTEM_PROMPT, build_rag_user_message
 from shared.services.qdrant_service import QdrantService
 
 
@@ -267,33 +267,82 @@ class RAGService:
         query: str,
         filters: Optional[Dict[str, Any]] = None,
         top_k: int = 5,
-        model: str = "gpt-4o-mini"
+        model: str = "gpt-4o-mini",
+        use_cache: bool = True
     ) -> Dict[str, Any]:
         """
-        Main chat interface - retrieves context and generates response
-
-        Args:
-            query: User's question
-            filters: Optional filters for policy search
-            top_k: Number of policies to retrieve
-            model: LLM model to use
-
-        Returns:
-            Response dict with answer and source policies (full data for frontend cards)
+        Main chat interface with Semantic Caching
+        
+        1. Check semantic cache in Qdrant
+        2. If hit, return cached answer
+        3. If miss, perform RAG and save to cache
         """
-        # 1. Retrieve relevant policies
+        # 1. Semantic Cache Check
+        if use_cache:
+            cache_hit = self.qdrant.get_cache(query, threshold=settings.QDRANT_CACHE_THRESHOLD)
+            if cache_hit:
+                return {
+                    "answer": cache_hit["answer"],
+                    "sources": cache_hit["sources"],
+                    "query": query,
+                    "cache_hit": True,
+                    "cache_score": cache_hit["score"]
+                }
+
+        # 2. Retrieve relevant policies (RAG)
         policies = self.retrieve_context(query, filters, top_k)
 
-        # 2. Build context
+        # 3. Build context
         context = self.build_context_prompt(policies)
 
-        # 3. Generate response
+        # 4. Generate response
         answer = self.generate_response(query, context, model)
 
-        # 4. Return structured response with full policy data
+        # 5. Save to Semantic Cache
+        if use_cache and answer:
+            self.qdrant.upsert_cache(query, answer, policies)
+
+        # 6. Return structured response
         return {
             "answer": answer,
-            "sources": policies,  # Return full policy data for frontend card formatting
+            "sources": policies,
             "query": query,
-            "context_used": len(policies) > 0
+            "context_used": len(policies) > 0,
+            "cache_hit": False
         }
+
+    def chat_stream(
+        self,
+        query: str,
+        filters: Optional[Dict[str, Any]] = None,
+        top_k: int = 5,
+        model: str = "gpt-4o-mini",
+        use_cache: bool = True
+    ):
+        """
+        Streaming chat interface with Semantic Caching
+        """
+        # 1. Semantic Cache Check
+        if use_cache:
+            cache_hit = self.qdrant.get_cache(query, threshold=settings.QDRANT_CACHE_THRESHOLD)
+            if cache_hit:
+                # Yield entire cached answer as a single "chunk"
+                # We yield a dict to keep consistency with generated chunks if needed
+                yield cache_hit["answer"]
+                return
+
+        # 2. Retrieve relevant policies (RAG)
+        policies = self.retrieve_context(query, filters, top_k)
+
+        # 3. Build context
+        context = self.build_context_prompt(policies)
+
+        # 4. Generate streaming response and collect for caching
+        full_answer = ""
+        for chunk in self.generate_response_stream(query, context, model):
+            full_answer += chunk
+            yield chunk
+
+        # 5. Save to cache after stream completion
+        if use_cache and full_answer:
+            self.qdrant.upsert_cache(query, full_answer, policies)

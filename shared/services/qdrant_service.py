@@ -28,6 +28,7 @@ class QdrantService:
     """
 
     COLLECTION_NAME = "welfare_chunks"
+    CACHE_COLLECTION = "llm_cache"
     DENSE_MODEL = "intfloat/multilingual-e5-large"
     SPARSE_MODEL = "Qdrant/bm25"
     DENSE_DIM = 1024
@@ -89,6 +90,28 @@ class QdrantService:
             print(f"✅ Created collection: {self.COLLECTION_NAME}")
         else:
             print(f"ℹ️ Collection already exists: {self.COLLECTION_NAME}")
+
+    def create_cache_collection(self, recreate: bool = False):
+        """
+        Create collection for semantic caching
+        """
+        if recreate and self.client.collection_exists(self.CACHE_COLLECTION):
+            self.client.delete_collection(self.CACHE_COLLECTION)
+            print(f"🗑️ Deleted existing cache collection: {self.CACHE_COLLECTION}")
+
+        if not self.client.collection_exists(self.CACHE_COLLECTION):
+            self.client.create_collection(
+                collection_name=self.CACHE_COLLECTION,
+                vectors_config={
+                    "dense": VectorParams(
+                        size=self.DENSE_DIM,
+                        distance=Distance.COSINE,
+                    )
+                }
+            )
+            print(f"✅ Created cache collection: {self.CACHE_COLLECTION}")
+        else:
+            print(f"ℹ️ Cache collection already exists: {self.CACHE_COLLECTION}")
 
     def _encode_dense(self, texts: List[str]) -> List[List[float]]:
         """Encode texts using dense model with E5 prefix"""
@@ -320,3 +343,61 @@ class QdrantService:
             "points_count": info.points_count,
             "status": info.status,
         }
+
+    def get_cache(self, query: str, threshold: float = 0.95) -> Optional[Dict[str, Any]]:
+        """
+        Search for similar questions in semantic cache
+        """
+        if not self.client.collection_exists(self.CACHE_COLLECTION):
+            return None
+
+        dense_query = self._encode_dense_query(query)
+        
+        results = self.client.query_points(
+            collection_name=self.CACHE_COLLECTION,
+            query=dense_query,
+            using="dense",
+            limit=1,
+            with_payload=True
+        )
+
+        if results.points and results.points[0].score >= threshold:
+            point = results.points[0]
+            print(f"🎯 Cache hit! Score: {point.score:.4f}")
+            return {
+                "answer": point.payload.get("answer"),
+                "sources": point.payload.get("sources", []),
+                "score": point.score,
+                "original_query": point.payload.get("query")
+            }
+        
+        return None
+
+    def upsert_cache(self, query: str, answer: str, sources: List[Dict[str, Any]] = None):
+        """
+        Store question/answer pair in semantic cache
+        """
+        if not self.client.collection_exists(self.CACHE_COLLECTION):
+            self.create_cache_collection()
+
+        dense_vector = self._encode_dense_query(query)
+        import uuid
+        
+        point_id = str(uuid.uuid4())
+        
+        self.client.upsert(
+            collection_name=self.CACHE_COLLECTION,
+            points=[
+                PointStruct(
+                    id=point_id,
+                    vector={"dense": dense_vector},
+                    payload={
+                        "query": query,
+                        "answer": answer,
+                        "sources": sources or [],
+                        "created_at": models.Timestamp.now() if hasattr(models, 'Timestamp') else None
+                    }
+                )
+            ]
+        )
+        print(f"💾 Cached new response: {query[:30]}...")

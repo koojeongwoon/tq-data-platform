@@ -140,7 +140,7 @@ def index_policies():
     print(f"📊 Found {total} policies in PostgreSQL")
     
     # Process in batches
-    batch_size = 100
+    batch_size = 50  # Smaller batches for better observability
     total_chunks = 0
     
     for i in range(0, total, batch_size):
@@ -148,23 +148,27 @@ def index_policies():
         batch_num = i // batch_size + 1
         total_batches = (total + batch_size - 1) // batch_size
         
-        print(f"\n📦 Processing batch {batch_num}/{total_batches}...")
+        print(f"\n📦 Processing batch {batch_num}/{total_batches} ({i}-{min(i+batch_size, total)}/{total})...")
         
         # Build chunks from policies
         all_chunks = []
         for policy in batch:
-            chunks = build_chunks_from_policy(policy)
-            all_chunks.extend(chunks)
+            try:
+                chunks = build_chunks_from_policy(policy)
+                all_chunks.extend(chunks)
+            except Exception as e:
+                print(f"  ⚠️  Error chunking policy {policy.get('policy_id')}: {e}")
         
         if not all_chunks:
-            print(f"  ⚠️  No valid chunks in batch")
             continue
         
         # Upsert to Qdrant (includes embedding generation)
-        qdrant.upsert_chunks(all_chunks, batch_size=100, n_workers=2)
-        total_chunks += len(all_chunks)
-        
-        print(f"  ✅ Indexed {len(all_chunks)} chunks (total: {total_chunks})")
+        try:
+            qdrant.upsert_chunks(all_chunks, batch_size=50, n_workers=1) # Reduced workers to avoid lock issues
+            total_chunks += len(all_chunks)
+            print(f"  ✅ Indexed {len(all_chunks)} chunks (total: {total_chunks})")
+        except Exception as e:
+            print(f"  ❌ Failed to index batch: {e}")
     
     print(f"\n🎉 Indexing complete!")
     print(f"   📊 Total chunks indexed: {total_chunks}")

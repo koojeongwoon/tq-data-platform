@@ -1,11 +1,9 @@
-"""Chat domain - 챗봇 관련 모듈"""
+"""Chat domain - 대화 오케스트레이션 공개 인터페이스"""
 
 from app.chat.router import router
 from app.chat.service import RAGService
-from app.chat.conversation import ConversationFlow
 
 __all__ = [
     "router",
     "RAGService",
-    "ConversationFlow",
 ]

@@ -1,9 +1,10 @@
 """Onboarding router - 회원가입 후 대화형 프로필 수집"""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from app.auth.router import get_current_user
+from app.auth import get_current_user
 from app.onboarding.schemas import (
+    CREATE_GUEST_SESSIONS_TABLE,
     CREATE_ONBOARDING_SESSIONS_TABLE,
     CREATE_USER_PREFERENCES_TABLE,
     CompleteRequest,
@@ -11,8 +12,11 @@ from app.onboarding.schemas import (
     ConversationRequest,
     ConversationResponse,
     OnboardingProfile,
+    OnboardingRequest,
+    OnboardingResponse,
 )
 from app.onboarding.service import OnboardingService
+from app.onboarding.registration import GuestRegistrationService
 from shared.db.postgres import PostgresClient
 
 router = APIRouter(prefix="/onboarding", tags=["Onboarding"])
@@ -23,6 +27,7 @@ def _init_tables():
     postgres = PostgresClient()
     postgres.execute_ddl(CREATE_USER_PREFERENCES_TABLE)
     postgres.execute_ddl(CREATE_ONBOARDING_SESSIONS_TABLE)
+    postgres.execute_ddl(CREATE_GUEST_SESSIONS_TABLE)
 
 
 # 앱 시작 시 테이블 생성
@@ -30,7 +35,33 @@ _init_tables()
 
 
 # =============================================================================
-# Endpoints
+# Registration Endpoints (Guest/Unauthenticated)
+# =============================================================================
+
+@router.post("/registration", response_model=OnboardingResponse)
+async def registration(request: Request, body: OnboardingRequest):
+    """
+    대화형 회원가입 (게스트 전용)
+    
+    계정이 없는 사용자로부터 닉네임, 이메일, 비밀번호를 대화형으로 수집하여 가입 처리합니다.
+    """
+    service = GuestRegistrationService()
+    
+    # 세션 처리
+    session_id, initial_data = service.get_or_create_guest_session(
+        session_id=body.session_id,
+        ip_address=request.client.host if request.client else None
+    )
+    
+    if not body.message:
+        return OnboardingResponse(**initial_data)
+        
+    result = service.process_message(session_id, body.message)
+    return OnboardingResponse(**result)
+
+
+# =============================================================================
+# Profile Endpoints (Authenticated)
 # =============================================================================
 
 @router.post("/conversation", response_model=ConversationResponse)

@@ -33,6 +33,8 @@ class Settings:
     # Qdrant Settings
     QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
     QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
+    QDRANT_CACHE_COLLECTION = os.getenv("QDRANT_CACHE_COLLECTION", "llm_cache")
+    QDRANT_CACHE_THRESHOLD = float(os.getenv("QDRANT_CACHE_THRESHOLD", 0.95))
 
     # Embedding Settings
     USE_EMBEDDINGS = os.getenv("USE_EMBEDDINGS", "true").lower() == "true"

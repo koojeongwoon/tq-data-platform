@@ -40,6 +40,24 @@ class CompleteResponse(BaseModel):
     user: dict = Field(..., description="업데이트된 사용자 정보")
 
 
+class OnboardingRequest(BaseModel):
+    """게스트 회원가입 대화 요청"""
+    message: str = Field(..., description="사용자 메시지")
+    session_id: Optional[str] = Field(None, description="세션 ID (없으면 새 세션 생성)")
+
+
+class OnboardingResponse(BaseModel):
+    """게스트 회원가입 대화 응답"""
+    response: str = Field(..., description="AI 응답 메시지")
+    session_id: str = Field(..., description="세션 ID")
+    step: str = Field(..., description="현재 단계")
+    is_complete: bool = Field(False, description="회원가입 완료 여부")
+    collected_info: dict = Field(default_factory=dict, description="수집된 정보")
+    access_token: Optional[str] = None
+    refresh_token: Optional[str] = None
+    user: Optional[dict] = None
+
+
 # 온보딩 세션 DDL
 CREATE_ONBOARDING_SESSIONS_TABLE = """
 CREATE TABLE IF NOT EXISTS onboarding_sessions (
@@ -69,4 +87,26 @@ CREATE TABLE IF NOT EXISTS user_preferences (
 );
 
 CREATE INDEX IF NOT EXISTS idx_user_preferences_user_id ON user_preferences(user_id);
+"""
+# 게스트 세션 테이블 DDL
+CREATE_GUEST_SESSIONS_TABLE = """
+CREATE TABLE IF NOT EXISTS guest_sessions (
+    id SERIAL PRIMARY KEY,
+    session_id VARCHAR(50) UNIQUE NOT NULL,
+    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    collected_nickname VARCHAR(50),
+    collected_email VARCHAR(100),
+    collected_password_hash VARCHAR(255),
+    onboarding_step VARCHAR(50) DEFAULT 'ask_nickname',
+    messages JSONB DEFAULT '[]'::jsonb,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    device_fingerprint VARCHAR(100),
+    expires_at TIMESTAMP NOT NULL,
+    completed_at TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_guest_sessions_session_id ON guest_sessions(session_id);
 """

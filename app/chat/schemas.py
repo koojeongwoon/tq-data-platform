@@ -50,60 +50,12 @@ class ConversationRequest(BaseModel):
         None,
         description="세션 ID (없으면 새 세션 생성)"
     )
-
-
-class OnboardingRequest(BaseModel):
-    """대화형 온보딩/회원가입 요청"""
-
-    message: str = Field(
-        ...,
-        min_length=1,
-        max_length=500,
-        description="사용자 메시지"
-    )
-    session_id: Optional[str] = Field(
+    pre_load_policy_id: Optional[str] = Field(
         None,
-        description="게스트 세션 ID (없으면 새 세션 생성)"
+        description="대화 시작 시 미리 로드할 정책 ID (대시보드 연동용)"
     )
 
 
-class OnboardingResponse(BaseModel):
-    """대화형 온보딩/회원가입 응답"""
-
-    response: str = Field(..., description="AI 응답")
-    session_id: str = Field(..., description="게스트 세션 ID")
-    step: str = Field(..., description="현재 온보딩 단계")
-    is_complete: bool = Field(False, description="회원가입 완료 여부")
-    collected_info: dict = Field(default_factory=dict, description="수집된 정보 (닉네임, 이메일)")
-
-    # 회원가입 완료 시에만 포함
-    access_token: Optional[str] = Field(None, description="JWT Access Token (완료 시)")
-    refresh_token: Optional[str] = Field(None, description="JWT Refresh Token (완료 시)")
-    user: Optional[dict] = Field(None, description="사용자 정보 (완료 시)")
-
-
-class ProfileCollectionRequest(BaseModel):
-    """프로필 수집 요청 (가입 후 채팅)"""
-
-    message: str = Field(
-        ...,
-        min_length=1,
-        max_length=200,
-        description="사용자 메시지"
-    )
-    current_step: str = Field(
-        "ask_age_group",
-        description="현재 프로필 수집 단계"
-    )
-
-
-class ProfileCollectionResponse(BaseModel):
-    """프로필 수집 응답"""
-
-    response: str = Field(..., description="AI 응답")
-    step: str = Field(..., description="현재 단계 (ask_age_group, ask_gender, ask_region, ask_interests, complete)")
-    is_complete: bool = Field(False, description="프로필 수집 완료 여부")
-    profile: dict = Field(default_factory=dict, description="수집된 프로필 정보")
 
 
 class ConversationResponse(BaseModel):
@@ -270,49 +222,6 @@ CREATE INDEX IF NOT EXISTS idx_policy_views_policy_id ON policy_views(policy_id)
 CREATE INDEX IF NOT EXISTS idx_policy_views_user_policy ON policy_views(user_id, policy_id);
 """
 
-# 5. 비인증 게스트 세션 (대화형 회원가입용)
-CREATE_GUEST_SESSIONS_TABLE = """
-CREATE TABLE IF NOT EXISTS guest_sessions (
-    id SERIAL PRIMARY KEY,
-    session_id VARCHAR(50) UNIQUE NOT NULL,
-
-    -- 수집된 회원가입 정보
-    collected_nickname VARCHAR(50),                  -- 닉네임
-    collected_email VARCHAR(255),
-    collected_password_hash VARCHAR(255),
-
-    -- 개인 정보 (맞춤 정책 추천용)
-    collected_age_group VARCHAR(20),                 -- 연령대 (10대, 20대, 30대, 40대, 50대, 60대 이상)
-    collected_gender VARCHAR(10),                    -- 성별 (남성, 여성, 기타, 미공개)
-    collected_region VARCHAR(50),                    -- 지역 (시/도)
-    collected_region_detail VARCHAR(100),            -- 상세 지역 (시/군/구)
-
-    -- 관심 정책 카테고리 (복수 선택)
-    collected_interests JSONB DEFAULT '[]',          -- ["임신/출산", "육아", "청년", "노년" 등]
-
-    -- 온보딩 상태
-    onboarding_step VARCHAR(50) DEFAULT 'greeting',
-    messages JSONB DEFAULT '[]',
-
-    -- 연결된 사용자 (회원가입 완료 시)
-    user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
-
-    -- Metadata
-    device_fingerprint VARCHAR(255),
-    ip_address VARCHAR(45),
-    user_agent TEXT,
-
-    -- Timestamps
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    expires_at TIMESTAMP NOT NULL,
-    completed_at TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_guest_sessions_session_id ON guest_sessions(session_id);
-CREATE INDEX IF NOT EXISTS idx_guest_sessions_email ON guest_sessions(collected_email);
-CREATE INDEX IF NOT EXISTS idx_guest_sessions_expires_at ON guest_sessions(expires_at);
-"""
 
 # Legacy - 기존 세션 테이블 (마이그레이션 후 삭제 예정)
 CREATE_CHAT_SESSIONS_TABLE = """

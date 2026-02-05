@@ -22,6 +22,7 @@ from app.middleware.error_handler import (
 from app.auth import router as auth_router
 from app.chat import router as chat_router
 from app.onboarding import router as onboarding_router
+from app.dashboard import router as dashboard_router
 from app.welfare import router as welfare_router
 from app.search import router as search_router
 from app.core import health_router
@@ -98,6 +99,7 @@ app.add_exception_handler(Exception, general_exception_handler)
 app.include_router(health_router)
 app.include_router(auth_router)
 app.include_router(onboarding_router)
+app.include_router(dashboard_router)
 app.include_router(welfare_router)
 app.include_router(search_router)
 app.include_router(chat_router)

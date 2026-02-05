@@ -17,6 +17,15 @@ dependencies = [
     "sentence-transformers>=2.2.0",  # For BGE-M3 embeddings
     "torch>=2.0.0,<2.3.0",  # Required by sentence-transformers (macOS Intel compatible)
     "numpy>=1.24.0,<2.0.0",  # torch compatibility (numpy 2.x not supported yet)
+    "fastembed>=0.4.2",
+    "tqdm>=4.67.1",
+    "email-validator>=2.3.0",
+    "bcrypt>=5.0.0",
+    "pyjwt>=2.11.0",
+    "passlib>=1.7.4",
+    "langchain-core>=1.2.8",
+    "langchain-openai>=1.1.7",
+    "langgraph>=1.0.7",
 ]
 
 [project.scripts]
