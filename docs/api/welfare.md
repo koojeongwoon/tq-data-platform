@@ -122,6 +122,44 @@ GET /welfare/policies/WLF00000123
 
 ---
 
+---
+
+### GET `/welfare/recommendations` - 맞춤 추천 정책 조회 (대시보드)
+
+대시보드용으로 지역 정책과 전국 공통 정책을 구분하여 조회합니다.
+
+**Query Parameters**
+
+| 파라미터 | 타입    | 필수 | 설명                                           |
+| -------- | ------- | ---- | ---------------------------------------------- |
+| region   | string  | ❌   | 사용자 지역 (예: 서울). 지역 정책 조회 시 필수 |
+| limit    | integer | ❌   | 섹션별 결과 수 (기본: 5)                       |
+
+**Response** `200 OK`
+
+````json
+{
+  "regional": [
+    {
+      "policy_id": "WLF00000123",
+      "title": "청년 수당",
+      "ctpv_nm": "서울특별시",
+      "source_type": "regional",
+      ...
+    }
+  ],
+  "national": [
+    {
+      "policy_id": "WLF00000999",
+      "title": "내일배움카드",
+      "source_type": "central",
+      ...
+    }
+  ]
+}
+
+---
+
 ## 데이터 모델
 
 ### Policy
@@ -142,7 +180,7 @@ class Policy(BaseModel):
     application_detail: Optional[str]   # 신청 방법 상세
     phone: Optional[str]        # 문의 전화
     website: Optional[str]      # 관련 웹사이트
-```
+````
 
 ### source_type 값
 

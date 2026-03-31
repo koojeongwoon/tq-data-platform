@@ -201,6 +201,7 @@ class QdrantService:
         limit: int = 5,
         chunk_type: Optional[str] = None,
         province: Optional[str] = None,
+        life_cycle: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Hybrid search using RRF (Reciprocal Rank Fusion)
@@ -221,8 +222,31 @@ class QdrantService:
                 FieldCondition(key="chunk_type", match=MatchValue(value=chunk_type))
             )
         if province:
+            # Handle short region names
+            region_full = {
+                "서울": "서울특별시", "경기": "경기도", "인천": "인천광역시",
+                "부산": "부산광역시", "대구": "대구광역시", "광주": "광주광역시",
+                "대전": "대전광역시", "울산": "울산광역시", "세종": "세종특별자치시",
+                "강원": "강원특별자치도", "충북": "충청북도", "충남": "충청남도",
+                "전북": "전북특별자치도", "전남": "전라남도", "경북": "경상북도",
+                "경남": "경상남도", "제주": "제주특별자치도"
+            }
+            full_province = region_full.get(province, province)
+            
+            # Include policies from the specific region OR nationwide ("전국")
             filter_conditions.append(
-                FieldCondition(key="metadata.province", match=MatchValue(value=province))
+                Filter(
+                    should=[
+                        FieldCondition(key="metadata.province", match=MatchValue(value=full_province)),
+                        FieldCondition(key="metadata.province", match=MatchValue(value="전국")),
+                        FieldCondition(key="metadata.province", match=MatchValue(value="")),
+                    ]
+                )
+            )
+
+        if life_cycle:
+            filter_conditions.append(
+                FieldCondition(key="metadata.life_cycle", match=MatchValue(value=life_cycle))
             )
 
         query_filter = Filter(must=filter_conditions) if filter_conditions else None
@@ -264,6 +288,116 @@ class QdrantService:
             }
             for point in results.points
         ]
+        """
+        Hybrid search using RRF (Reciprocal Rank Fusion)
+
+        Args:
+            query: Search query
+            limit: Number of results
+            chunk_type: Filter by chunk type (basic_info, eligibility, benefit, application)
+            province: Filter by province (e.g., "서울특별시", "경기도")
+
+        Returns:
+            List of search results with score and payload
+        """
+        # Build filter
+        filter_conditions = []
+        if chunk_type:
+            filter_conditions.append(
+                FieldCondition(key="chunk_type", match=MatchValue(value=chunk_type))
+            )
+        if province:
+            # Handle short region names
+            region_full = {
+                "서울": "서울특별시", "경기": "경기도", "인천": "인천광역시",
+                "부산": "부산광역시", "대구": "대구광역시", "광주": "광주광역시",
+                "대전": "대전광역시", "울산": "울산광역시", "세종": "세종특별자치시",
+                "강원": "강원특별자치도", "충북": "충청북도", "충남": "충청남도",
+                "전북": "전북특별자치도", "전남": "전라남도", "경북": "경상북도",
+                "경남": "경상남도", "제주": "제주특별자치도"
+            }
+            full_province = region_full.get(province, province)
+            filter_conditions.append(
+                FieldCondition(key="metadata.province", match=MatchValue(value=full_province))
+            )
+
+        if life_cycle:
+            filter_conditions.append(
+                FieldCondition(key="metadata.life_cycle", match=MatchValue(value=life_cycle))
+            )
+
+        query_filter = Filter(must=filter_conditions) if filter_conditions else None
+
+        # Encode query
+        dense_query = self._encode_dense_query(query)
+        sparse_query = self._encode_sparse_query(query)
+
+        # Hybrid search with RRF fusion
+        results = self.client.query_points(
+            collection_name=self.COLLECTION_NAME,
+            prefetch=[
+                Prefetch(
+                    query=dense_query,
+                    using="dense",
+                    limit=limit * 2,
+                    filter=query_filter,
+                ),
+                Prefetch(
+                    query=sparse_query,
+                    using="sparse",
+                    limit=limit * 2,
+                    filter=query_filter,
+                ),
+            ],
+            query=FusionQuery(fusion=Fusion.RRF),
+            limit=limit,
+        )
+
+        return [
+            {
+                "score": point.score,
+                "chunk_id": point.payload.get("chunk_id"),
+                "chunk_type": point.payload.get("chunk_type"),
+                "policy_id": point.payload.get("policy_id"),
+                "title": point.payload.get("title"),
+                "content": point.payload.get("content"),
+                "metadata": point.payload.get("metadata", {}),
+            }
+            for point in results.points
+        ]
+
+    def count_matches(self, province: Optional[str] = None, life_cycle: Optional[str] = None) -> int:
+        """관심 지역 및 생애주기에 따른 정책 수 카운트"""
+        filter_conditions = []
+        
+        if province:
+             # Handle short region names
+            region_full = {
+                "서울": "서울특별시", "경기": "경기도", "인천": "인천광역시",
+                "부산": "부산광역시", "대구": "대구광역시", "광주": "광주광역시",
+                "대전": "대전광역시", "울산": "울산광역시", "세종": "세종특별자치시",
+                "강원": "강원특별자치도", "충북": "충청북도", "충남": "충청남도",
+                "전북": "전북특별자치도", "전남": "전라남도", "경북": "경상북도",
+                "경남": "경상남도", "제주": "제주특별자치도"
+            }
+            full_province = region_full.get(province, province)
+            filter_conditions.append(
+                FieldCondition(key="metadata.province", match=MatchValue(value=full_province))
+            )
+
+        if life_cycle:
+            filter_conditions.append(
+                FieldCondition(key="metadata.life_cycle", match=MatchValue(value=life_cycle))
+            )
+
+        query_filter = Filter(must=filter_conditions) if filter_conditions else None
+        
+        count_result = self.client.count(
+            collection_name=self.COLLECTION_NAME,
+            count_filter=query_filter,
+            exact=False
+        )
+        return count_result.count
 
     def search_dense_only(
         self,

@@ -7,19 +7,25 @@
 INTENT_CLASSIFICATION_SYSTEM = "의도 분류 AI입니다. 키워드만 응답하세요."
 
 
-def build_intent_classification_prompt(message: str) -> str:
-    """Build prompt for intent classification"""
-    return f"""사용자 메시지의 의도를 분류하세요.
+def build_intent_classification_prompt(message: str, previous_intent: str = "", last_reply: str = "") -> str:
+    """Build prompt for intent classification with context"""
+    context_str = ""
+    if previous_intent:
+        context_str += f"\n이전 의도: {previous_intent}"
+    if last_reply:
+        context_str += f"\n최근 AI 답변: \"{last_reply}\""
 
+    return f"""사용자 메시지의 의도를 분류하세요. {context_str}
+    
 사용자 메시지: "{message}"
 
 가능한 의도:
 1. welfare_search: 복지 정책/지원금/혜택을 찾거나 검색하려는 의도
-   - 예: "육아 지원금 알려줘", "청년 혜택 뭐있어?", "임산부인데 받을 수 있는 거 있어?"
+   - 예: "육아 지원금 알려줘", "청년 혜택 뭐있어?"
    - 지역, 생애주기(임신, 육아, 청년, 노인 등), 관심분야 언급 시 해당
-2. policy_detail: 특정 정책에 대해 더 알고 싶음
+2. policy_detail: 특정 정책의 상세 내용(신청 방법, 대상 등)을 묻는 의도
    - 예: "이 정책 자세히 알려줘", "신청 방법이 뭐야?"
-3. checklist: 서류 준비나 신청 자격 체크리스트가 필요한 의도
+3. checklist: 서류 준비나 신청 자격 체크리스트가 필요한 의도 (이전 답변이 질문인 경우 답변도 포함)
    - 예: "어떤 서류 준비해야 돼?", "필요한 서류 알려줘", "체크리스트 만들어줘"
 4. reasoning: 복합 조건 필터링이나 지원금 계산이 필요한 의도
    - 예: "나는 얼마 받을 수 있어?", "내 조건이면 혜택이 어떻게 돼?", "가구원이 3명인데 계산해줘"
@@ -29,7 +35,8 @@ def build_intent_classification_prompt(message: str) -> str:
    - 예: "내가 직장을 그만두면 어떻게 돼?", "다른 지역으로 이사 가면 혜택이 바뀌나?"
 7. general_question: 복지 관련 일반 질문
    - 예: "복지란 무엇인가요?", "어디서 신청하나요?"
-8. chitchat: 인사, 잡담, 감사
+8. chitchat: 인사, 잡담, 감사, 또는 이전 질문에 대한 단순 긍정/부정(예, 아니오)
+   - 중요: 이전 의도가 전문 에이전트(checklist, reasoning 등)이고 사용자가 그 질문에 답하는 것이라면 해당 전문 에이전트 의도를 유지하세요.
 9. unknown: 위 어느 것에도 해당하지 않음
 
 의도 키워드만 응답 (welfare_search, policy_detail, checklist, reasoning, plain_language, scenario, general_question, chitchat, unknown):"""
@@ -99,3 +106,26 @@ def build_general_question_prompt(question: str) -> str:
 사용자 질문: {question}
 
 간결하게 2-3문장으로 답변하세요:"""
+# =============================================================================
+# Greeting Prompts
+# =============================================================================
+
+GREETING_SYSTEM = "친절한 복지 상담사 '베니'로서 사용자에게 개인화된 첫 인사를 건네세요."
+
+
+def build_greeting_prompt(user_profile: dict) -> str:
+    """Build prompt for personalized first greeting"""
+    region = user_profile.get("region", "전국")
+    life_stage = user_profile.get("life_stage") or user_profile.get("life_cycle", "관심있는")
+    interests = ", ".join(user_profile.get("interests", [])) if user_profile.get("interests") else ""
+    
+    context_str = f"지역: {region}, 상황: {life_stage}"
+    if interests:
+        context_str += f", 관심분야: {interests}"
+
+    return f"""사용자 정보: {context_str}
+
+위 정보를 바탕으로 사용자에게 친절하고 개인화된 첫 인사를 하세요.
+- 사용자의 지역이나 상황(청년, 임신 등)을 언급하며 공감대를 형성하세요.
+- 무엇을 도와드릴지 자연스럽게 물어보세요.
+- 2문장 이내로 짧고 따뜻하게 작성하세요."""

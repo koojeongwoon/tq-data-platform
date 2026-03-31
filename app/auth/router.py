@@ -32,6 +32,7 @@ from shared.db.postgres import PostgresClient
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 security = HTTPBearer()
+security_optional = HTTPBearer(auto_error=False)
 
 
 def _init_tables():
@@ -120,6 +121,18 @@ async def get_current_user(
         )
 
     return user[0]
+
+
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials = Depends(security_optional)
+) -> dict | None:
+    """현재 로그인한 사용자 반환 (없어도 무방)"""
+    if not credentials:
+        return None
+    try:
+        return await get_current_user(credentials)
+    except Exception:
+        return None
 
 
 # =============================================================================

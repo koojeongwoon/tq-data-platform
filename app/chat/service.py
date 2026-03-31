@@ -11,6 +11,7 @@ from shared.config.settings import settings
 from shared.db.postgres import PostgresClient
 from app.welfare.prompts import WELFARE_SYSTEM_PROMPT, build_rag_user_message
 from shared.services.qdrant_service import QdrantService
+from flashrank import Ranker, RerankRequest
 
 
 class RAGService:
@@ -40,6 +41,10 @@ class RAGService:
         else:
             self.openai_client = None
 
+        # Initialize Reranker (Lightweight Model)
+        # cache_dir ensures model is downloaded once
+        self.ranker = Ranker(model_name="ms-marco-MiniLM-L-12-v2", cache_dir="./.cache")
+
     def retrieve_context(
         self,
         query: str,
@@ -60,20 +65,48 @@ class RAGService:
         # Extract filter parameters
         chunk_type = filters.get("chunk_type") if filters else None
         province = filters.get("province") or filters.get("ctpv_nm") if filters else None
+        life_cycle = filters.get("life_cycle") if filters else None
 
         # Hybrid search in Qdrant
-        results = self.qdrant.hybrid_search(
+        # 1. Fetch more candidates for reranking (e.g., 4x top_k)
+        fetch_k = top_k * 4
+        
+        candidates = self.qdrant.hybrid_search(
             query=query,
-            limit=top_k,
+            limit=fetch_k,
             chunk_type=chunk_type,
-            province=province
+            province=province,
+            life_cycle=life_cycle
         )
+
+        if not candidates:
+            return []
+
+        # 2. Rerank using FlashRank
+        passages = [
+            {
+                "id": c.get("policy_id") or str(i),
+                "text": f"{c.get('title', '')} {c.get('content', '')}",
+                "meta": c
+            }
+            for i, c in enumerate(candidates)
+        ]
+
+        rerank_request = RerankRequest(query=query, passages=passages)
+        results = self.ranker.rerank(rerank_request)
+        
+        # Take top_k from reranked results
+        reranked_candidates = [r["meta"] for r in results[:top_k]]
+        
+        # Update scores in candidates
+        for i, r in enumerate(results[:top_k]):
+             reranked_candidates[i]["score"] = float(r["score"])
 
         # Enrich with full policy data from PostgreSQL if needed
         enriched_results = []
         seen_policies = set()
 
-        for result in results:
+        for result in reranked_candidates:
             policy_id = result.get("policy_id")
 
             # Get full policy details from PostgreSQL (deduplicate)
@@ -100,10 +133,30 @@ class RAGService:
                         "ctpv_nm": full_policy.get("ctpv_nm", ""),
                         "sgg_nm": full_policy.get("sgg_nm", ""),
                     })
-            else:
-                # Fallback to chunk data only
+                else:
+                    # Fallback to chunk data if DB lookup fails but ID is valid and new
+                    enriched_results.append({
+                        "policy_id": policy_id,
+                        "score": result.get("score", 0),
+                        "chunk_type": result.get("chunk_type", ""),
+                        "chunk_content": result.get("content", ""),
+                        "title": result.get("title", ""),
+                        "ministry": "",
+                        "summary": "",
+                        "support_content": "",
+                        "target_detail": "",
+                        "application_method": "",
+                        "application_detail": "",
+                        "phone": "",
+                        "website": "",
+                        "source_type": "",
+                        "ctpv_nm": "",
+                        "sgg_nm": "",
+                    })
+            elif not policy_id:
+                # Add points without policy_id (e.g., general chunks)
                 enriched_results.append({
-                    "policy_id": policy_id or "",
+                    "policy_id": "",
                     "score": result.get("score", 0),
                     "chunk_type": result.get("chunk_type", ""),
                     "chunk_content": result.get("content", ""),
@@ -120,8 +173,42 @@ class RAGService:
                     "ctpv_nm": "",
                     "sgg_nm": "",
                 })
+            # If policy_id in seen_policies, we skip it (deduplication)
 
         return enriched_results
+
+    def retrieve_context_by_id(self, policy_id: str) -> List[Dict[str, Any]]:
+        """
+        Retrieve a specific policy by ID from PostgreSQL
+        
+        Args:
+            policy_id: The ID of the policy to retrieve
+            
+        Returns:
+            List containing the single policy dict if found, else empty list
+        """
+        full_policy = self.postgres.get_policy_by_id(policy_id)
+        if not full_policy:
+            return []
+            
+        return [{
+            "policy_id": policy_id,
+            "score": 1.0,  # Max score for exact match
+            "chunk_type": "full",
+            "chunk_content": full_policy.get("support_content", "") or full_policy.get("summary", ""),
+            "title": full_policy.get("title", ""),
+            "ministry": full_policy.get("ministry", ""),
+            "summary": full_policy.get("summary", ""),
+            "support_content": full_policy.get("support_content", ""),
+            "target_detail": full_policy.get("target_detail", ""),
+            "application_method": full_policy.get("application_method", ""),
+            "application_detail": full_policy.get("application_detail", ""),
+            "phone": full_policy.get("phone", ""),
+            "website": full_policy.get("website", ""),
+            "source_type": full_policy.get("source_type", ""),
+            "ctpv_nm": full_policy.get("ctpv_nm", ""),
+            "sgg_nm": full_policy.get("sgg_nm", ""),
+        }]
 
     def build_context_prompt(self, policies: List[Dict[str, Any]]) -> str:
         """

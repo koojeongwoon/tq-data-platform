@@ -4,6 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Suppress HuggingFace Tokenizers warning in fork/parallel environments
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 class Settings:
     # 여러 API 키 지원 (콤마로 구분)
     API_KEYS = [k.strip() for k in os.getenv("API_KEYS", "").split(",") if k.strip()]

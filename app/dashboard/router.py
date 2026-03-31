@@ -29,7 +29,8 @@ async def get_personalized(request: Request, current_user: dict = Depends(get_cu
     - 사용자의 관심사 및 프로필 기반 시맨틱 검색 결과 반환
     """
     qdrant_service = getattr(request.app.state, "qdrant_service", None)
-    service = DashboardService(qdrant_service=qdrant_service)
+    rag_service = getattr(request.app.state, "rag_service", None)
+    service = DashboardService(qdrant_service=qdrant_service, rag_service=rag_service)
     
     recommendations = service.get_personalized_recommendations(current_user["id"])
     return recommendations

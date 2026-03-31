@@ -102,9 +102,12 @@ class OnboardingService:
 
     def __init__(self):
         self.postgres = PostgresClient()
+        from openai import OpenAI
+        from shared.config.settings import settings
+        self.openai_client = OpenAI(api_key=settings.OPENAI_API_KEY) if settings.OPENAI_API_KEY else None
 
     def get_or_create_session(self, user_id: int, session_id: Optional[str] = None) -> dict:
-        """세션 조회 또는 생성"""
+        """세션 조회 또는 생성 (기존 프로필 연동)"""
         if session_id:
             # 기존 세션 조회
             result = self.postgres.execute_query(
@@ -118,26 +121,58 @@ class OnboardingService:
             if result:
                 return result[0]
 
-        # 새 세션 생성
+        # 새 세션 생성 시 기존 프로필 정보가 있는지 확인
+        prefs = self.postgres.execute_one(
+            "SELECT region, life_stage as life_cycle, interest_themes FROM user_preferences WHERE user_id = %s",
+            (user_id,)
+        )
+        
+        region = prefs.get("region") if prefs else None
+        life_cycle = prefs.get("life_cycle") if prefs else None
+        interests_data = prefs.get("interest_themes") if prefs else None
+        interests = ", ".join(interests_data) if isinstance(interests_data, list) else None
+        
         new_session_id = _generate_session_id()
         self.postgres.execute_write(
             """
-            INSERT INTO onboarding_sessions (id, user_id, step)
-            VALUES (%s, %s, 'greeting')
+            INSERT INTO onboarding_sessions (id, user_id, step, region, life_cycle, interests)
+            VALUES (%s, %s, 'greeting', %s, %s, %s)
             """,
-            (new_session_id, user_id)
+            (new_session_id, user_id, region, life_cycle, interests)
         )
         return {
             "id": new_session_id,
             "user_id": user_id,
             "step": "greeting",
-            "region": None,
-            "life_cycle": None,
-            "interests": None
+            "region": region,
+            "life_cycle": life_cycle,
+            "interests": interests
         }
 
+    def _extract_profile_with_llm(self, message: str) -> dict:
+        """LLM을 이용해 메시지에서 프로필 정보 추출"""
+        if not self.openai_client:
+            return {}
+
+        from app.onboarding.prompts import ONBOARDING_EXTRACTION_PROMPT
+        import json
+
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[
+                    {"role": "system", "content": ONBOARDING_EXTRACTION_PROMPT},
+                    {"role": "user", "content": message}
+                ],
+                response_format={"type": "json_object"}
+            )
+            return json.loads(response.choices[0].message.content)
+        except Exception as e:
+            print(f"LLM extraction error: {e}")
+            return {}
+
     def process_message(self, user_id: int, user_name: str, message: str, session_id: Optional[str] = None) -> dict:
-        """온보딩 메시지 처리"""
+        """온보딩 메시지 처리 (NLP 기반 추출 및 동적 버튼)"""
         session = self.get_or_create_session(user_id, session_id)
         current_step = session["step"]
 
@@ -151,46 +186,68 @@ class OnboardingService:
         }
         is_completed = False
 
-        # 첫 요청 (greeting)
+        # LLM 기반 정보 추출 시도
+        extracted = self._extract_profile_with_llm(message)
+        
+        # 첫 요청 (greeting) 및 기존 정보에 따른 자동 스킵 로직
         if current_step == "greeting":
-            response_text = f"{user_name}님, 가입을 축하드려요! 🎉\n\n맞춤 정책을 추천해드리기 위해 몇 가지 질문을 드릴게요.\n\n어느 지역에 거주하고 계신가요?"
-            next_step = "collect_region"
-            quick_replies = REGIONS
+            if profile["region"] and profile["life_cycle"] and profile["interests"]:
+                response_text = f"{user_name}님, 다시 만나서 반가워요! 😊\n\n이미 등록된 정보가 있어요:\n• 지역: {profile['region']}\n• 상황: {profile['life_cycle']}\n• 관심: {profile['interests']}\n\n정보를 수정하시겠어요? 수정하시려면 거주 지역부터 다시 말씀해주세요."
+                next_step = "collect_region"
+                quick_replies = REGIONS
+            elif profile["region"]:
+                if profile["life_cycle"]:
+                    response_text = f"{user_name}님 반가워요! {profile['region']}에 거주하시고 {profile['life_cycle']} 상황이신 걸로 알고 있어요. 👍\n\n관심 있는 분야를 알려주세요. (복수 선택 가능)"
+                    next_step = "collect_interests"
+                    quick_replies = INTERESTS
+                else:
+                    response_text = f"{user_name}님 반가워요! {profile['region']}에 거주 중이신 걸로 알고 있어요. 👍\n\n현재 어떤 상황에 해당하시나요?"
+                    next_step = "collect_life_cycle"
+                    quick_replies = LIFE_CYCLES
+            else:
+                response_text = f"{user_name}님, 가입을 축하드려요! 🎉\n\n맞춤 정책을 추천해드리기 위해 몇 가지 질문을 드릴게요.\n\n어느 지역에 거주하고 계신가요?"
+                next_step = "collect_region"
+                quick_replies = REGIONS
 
         # 지역 수집
         elif current_step == "collect_region":
-            region = _parse_region(message)
+            region = extracted.get("region") or _parse_region(message)
             if region:
                 profile["region"] = region
                 response_text = f"{region}에 사시는군요! 👍\n\n현재 상황에 해당하는 것이 있으신가요?"
                 next_step = "collect_life_cycle"
                 quick_replies = LIFE_CYCLES
             else:
-                response_text = "지역을 다시 선택해주세요.\n\n" + ", ".join(REGIONS)
+                response_text = "거주 중인 지역을 말씀해주세요. (예: 서울, 경기도)"
                 quick_replies = REGIONS
 
         # 생애주기 수집
         elif current_step == "collect_life_cycle":
-            life_cycle = _parse_life_cycle(message)
+            life_cycle = extracted.get("life_cycle") or _parse_life_cycle(message)
             if life_cycle:
                 profile["life_cycle"] = life_cycle
-                response_text = f"{life_cycle} 관련 정책을 찾아드릴게요! 📋\n\n관심 있는 분야를 선택해주세요. (복수 선택 가능)"
+                response_text = f"{life_cycle} 관련 정책을 찾아드릴게요! 📋\n\n관심 있는 분야를 알려주세요. (복수 선택 가능)"
                 next_step = "collect_interests"
                 quick_replies = INTERESTS
             else:
-                response_text = "해당하는 상황을 선택해주세요."
+                response_text = "현재 어떤 상황이신가요? 아래 버튼에서 선택하시거나 직접 말씀해주세요."
                 quick_replies = LIFE_CYCLES
 
         # 관심분야 수집
         elif current_step == "collect_interests":
-            interests = _parse_interests(message)
+            interests = extracted.get("interests") or _parse_interests(message)
             if interests:
-                profile["interests"] = ", ".join(interests)
-                response_text = f"완료됐어요! 🎊\n\n입력해주신 정보를 바탕으로 맞춤 혜택을 찾아드릴게요.\n\n• 지역: {profile['region']}\n• 생애주기: {profile['life_cycle']}\n• 관심분야: {profile['interests']}"
+                if isinstance(interests, list):
+                    interests_str = ", ".join(interests)
+                else:
+                    interests_str = interests
+                
+                profile["interests"] = interests_str
+                response_text = f"모든 정보를 확인했습니다! 🎊\n\n입력해주신 정보를 바탕으로 맞춤 혜택을 찾아드릴게요.\n\n• 지역: {profile['region']}\n• 상황: {profile['life_cycle']}\n• 관심분야: {profile['interests']}"
                 next_step = "completed"
                 is_completed = True
             else:
-                response_text = "관심 있는 분야를 선택해주세요. (예: 주거, 취업)"
+                response_text = "관심 있는 분야를 선택하시거나 말씀해주세요. (예: 주거, 일자리)"
                 quick_replies = INTERESTS
 
         # 세션 업데이트

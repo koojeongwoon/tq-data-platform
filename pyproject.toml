@@ -26,6 +26,7 @@ dependencies = [
     "langchain-core>=1.2.8",
     "langchain-openai>=1.1.7",
     "langgraph>=1.0.7",
+    "flashrank>=0.2.10",
 ]
 
 [project.scripts]

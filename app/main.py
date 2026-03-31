@@ -25,6 +25,7 @@ from app.onboarding import router as onboarding_router
 from app.dashboard import router as dashboard_router
 from app.welfare import router as welfare_router
 from app.search import router as search_router
+from app.chat.service import RAGService
 from app.core import health_router
 
 from shared.config.settings import settings
@@ -58,7 +59,8 @@ async def lifespan(app: FastAPI):
 
         # Store in app state for reuse
         app.state.qdrant_service = qdrant_service
-        print("✅ Embedding models loaded successfully")
+        app.state.rag_service = RAGService(qdrant_service=qdrant_service)
+        print("✅ Embedding models and RAG service loaded successfully")
     except Exception as e:
         print(f"⚠️  Warning: Failed to load embedding models: {e}")
         print("   Models will be loaded on first request")

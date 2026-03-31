@@ -1,6 +1,7 @@
 """Chat router for RAG-based welfare policy chatbot"""
 
 import json
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -63,6 +64,46 @@ _init_tables()
 # =============================================================================
 # Helper Functions
 # =============================================================================
+
+def _initialize_session_state(conversation: Optional[dict], user_context: dict) -> dict:
+    """대화 세션 상태 초기화 및 프로필 보완"""
+    state = {
+        "messages": [],
+        "user_profile": {},
+        "intent": "",
+        "agent_data": {},
+        "ready_to_search": False,
+    }
+
+    if conversation:
+        # 기존 대화가 있으면 상태 복원
+        conversation_id = conversation.get("conversation_id")
+        if conversation_id:
+            state["messages"] = get_recent_context(conversation_id, limit=10)
+        
+        state.update({
+            "user_profile": conversation.get("collected_info", {}),
+            "intent": conversation.get("current_intent", ""),
+            "agent_data": conversation.get("agent_data", {}),
+            "ready_to_search": conversation.get("ready_to_search", False),
+        })
+
+    # 장기 기억(프로필)에서 세션 정보 보완 (session에 없는 정보만 추가)
+    if user_context.get("region") and not state["user_profile"].get("region"):
+        state["user_profile"]["region"] = user_context["region"]
+    
+    if user_context.get("life_stage") and not state["user_profile"].get("life_cycle"):
+        state["user_profile"]["life_cycle"] = user_context["life_stage"]
+        
+    if user_context.get("interests") and not state["user_profile"].get("interest"):
+        interests = user_context["interests"]
+        if isinstance(interests, list) and interests:
+            state["user_profile"]["interest"] = interests[0]
+        elif isinstance(interests, str):
+            state["user_profile"]["interest"] = interests
+
+    return state
+
 
 def _format_policy_source(policy: dict) -> PolicySource:
     """Convert policy dict to PolicySource model for frontend card"""
@@ -171,6 +212,11 @@ def _build_filters_from_profile(user_profile: dict) -> dict:
         }
         filters["province"] = region_full.get(region, region)
 
+    # 생애주기 필터 추가 (신규)
+    life_cycle = user_profile.get("life_cycle")
+    if life_cycle:
+        filters["life_cycle"] = life_cycle
+
     return filters
 
 
@@ -201,29 +247,16 @@ async def conversation(
     # 2. 사용자 컨텍스트 가져오기 (장기 기억)
     user_context = get_user_context_for_llm(user_id)
 
-    # 3. 기존 대화 이력 가져오기
-    session_state = None
-    if conv_data:
-        recent_messages = get_recent_context(conversation_id, limit=10)
-        session_state = {
-            "messages": recent_messages,
-            "user_profile": conv_data.get("collected_info", {}),
-            "intent": conv_data.get("current_intent", ""),
-            "agent_data": conv_data.get("agent_data", {}),
-            "ready_to_search": conv_data.get("ready_to_search", False),
-        }
-        # 장기 기억에서 프로필 보완
-        if user_context.get("region") and not session_state["user_profile"].get("region"):
-            session_state["user_profile"]["region"] = user_context["region"]
-        if user_context.get("life_stage") and not session_state["user_profile"].get("life_stage"):
-            session_state["user_profile"]["life_stage"] = user_context["life_stage"]
+    # 3. 세션 상태 초기화 (대화 이력 + 프로필 보완)
+    session_state = _initialize_session_state(conv_data, user_context)
 
     try:
         # 4. 사용자 메시지 저장
         add_message(conversation_id, "user", body.message)
 
-        # 5. LangGraph 처리
-        flow = ConversationFlow()
+        # 5. LangGraph 처리 (Qdrant 서비스 주입)
+        qdrant_service = getattr(request.app.state, "qdrant_service", None)
+        flow = ConversationFlow(qdrant_service=qdrant_service)
         result = flow.process(
             body.message, 
             session_state,
@@ -254,21 +287,11 @@ async def conversation(
                 add_topic=result.get("intent")
             )
 
-        # 9. 검색 실행 (필요시)
+        # 9. 검색 결과 처리 (그래프 내부에서 이미 수행됨)
         sources = None
-        if result["ready_to_search"]:
-            qdrant_service = getattr(request.app.state, "qdrant_service", None)
-            rag_service = RAGService(qdrant_service=qdrant_service)
-
-            filters = _build_filters_from_profile(result["user_profile"])
-            chat_result = rag_service.chat(
-                query=result["search_query"],
-                filters=filters,
-                top_k=5
-            )
-
-            sources = [_format_policy_source(p).model_dump() for p in chat_result["sources"]]
-            policies = chat_result["sources"]
+        if result.get("retrieved_docs"):
+            policies = result["retrieved_docs"]
+            sources = [_format_policy_source(p).model_dump() for p in policies]
 
             # 정책 조회 기록
             for policy in policies:
@@ -276,11 +299,9 @@ async def conversation(
                     user_id,
                     policy.get("policy_id", ""),
                     conversation_id,
-                    result["search_query"],
+                    result.get("search_query", body.message),
                     policy.get("score")
                 )
-
-            result["response"] = f"{result['response']}\n\n{chat_result['answer']}"
 
         # 10. AI 응답 저장
         add_message(
@@ -314,45 +335,46 @@ async def conversation_stream(
     """대화형 복지 정책 챗봇 스트리밍 엔드포인트 (LangGraph + SSE)"""
     user_id = current_user["id"]
     session_id, conversation = get_or_create_conversation(body.session_id, user_id)
-    session_state = conversation.get("collected_info", {}) if conversation else {}
+    
+    # 사용자 프로필 보완
+    user_context = get_user_context_for_llm(user_id)
+    session_state = _initialize_session_state(conversation, user_context)
 
     async def generate():
         try:
-            flow = ConversationFlow()
+            # 5. LangGraph 처리 (Qdrant 서비스 주입)
+            qdrant_service = getattr(request.app.state, "qdrant_service", None)
+            flow = ConversationFlow(qdrant_service=qdrant_service)
             result = flow.process(body.message, session_state)
 
             # DB에 대화 상태 저장
-            update_conversation(session_id, user_id, collected_info=result.get("session_state", {}))
+            update_conversation(session_id, user_id, 
+                               current_intent=result.get("intent"),
+                               collected_info=result["user_profile"],
+                               agent_data=result.get("agent_data", {}))
 
             yield f"event: session\ndata: {json.dumps({'session_id': session_id}, ensure_ascii=False)}\n\n"
             yield f"event: intent\ndata: {json.dumps({'intent': result.get('intent', '')}, ensure_ascii=False)}\n\n"
+            
+            # 검색 결과 출처 먼저 전달
+            if result.get("retrieved_docs"):
+                sources_data = [_format_policy_source(p).model_dump() for p in result["retrieved_docs"]]
+                yield f"event: sources\ndata: {json.dumps(sources_data, ensure_ascii=False)}\n\n"
+                
+                # 정책 조회 기록
+                for policy in result["retrieved_docs"]:
+                    record_policy_view(
+                        user_id,
+                        policy.get("policy_id", ""),
+                        session_id,
+                        result.get("search_query", body.message),
+                        policy.get("score")
+                    )
+
+            # 응답 본문 전달
             yield f"event: message\ndata: {json.dumps({'text': result['response']}, ensure_ascii=False)}\n\n"
             yield f"event: profile\ndata: {json.dumps(result['user_profile'], ensure_ascii=False)}\n\n"
-
-            if result["ready_to_search"]:
-                qdrant_service = getattr(request.app.state, "qdrant_service", None)
-                rag_service = RAGService(qdrant_service=qdrant_service)
-
-                filters = _build_filters_from_profile(result["user_profile"])
-                
-                # Fetch policies once for UI/Tracking even if cache hits
-                # In a more optimized version, we could get this from cache as well
-                policies = rag_service.retrieve_context(
-                    query=result["search_query"],
-                    filters=filters,
-                    top_k=5
-                )
-                sources_data = [_format_policy_source(p).model_dump() for p in policies]
-                yield f"event: sources\ndata: {json.dumps(sources_data, ensure_ascii=False)}\n\n"
-
-                for chunk in rag_service.chat_stream(
-                    query=result["search_query"],
-                    filters=filters,
-                    top_k=5
-                ):
-                    yield f"event: answer\ndata: {json.dumps({'text': chunk}, ensure_ascii=False)}\n\n"
-
-            yield f"event: done\ndata: {json.dumps({'ready_to_search': result['ready_to_search']}, ensure_ascii=False)}\n\n"
+            yield f"event: done\ndata: {json.dumps({'ready_to_search': len(result.get('retrieved_docs', [])) > 0}, ensure_ascii=False)}\n\n"
 
         except Exception as e:
             yield f"event: error\ndata: {json.dumps({'error': str(e)}, ensure_ascii=False)}\n\n"
@@ -655,3 +677,34 @@ async def profile_status(current_user: dict = Depends(get_current_user)):
     }
 
 
+@router.get("/greeting")
+async def get_greeting(current_user: dict = Depends(get_current_user)):
+    """사용자 맞춤형 첫 인사 생성"""
+    from langchain_core.messages import HumanMessage, SystemMessage
+    from langchain_openai import ChatOpenAI
+    from .prompts import GREETING_SYSTEM, build_greeting_prompt
+    
+    user_id = current_user["id"]
+    user_context = get_user_context_for_llm(user_id)
+    
+    # 만약 유저 정보가 아예 없으면 기본 인사 반환
+    if not any(user_context.values()):
+        return {"greeting": "안녕하세요! 복지 정책 전문가 베니입니다. 무엇을 도와드릴까요?"}
+
+    try:
+        llm = ChatOpenAI(
+            model="gpt-4o-mini",
+            api_key=settings.OPENAI_API_KEY,
+            temperature=0.7
+        )
+        
+        prompt = build_greeting_prompt(user_context)
+        response = llm.invoke([
+            SystemMessage(content=GREETING_SYSTEM),
+            HumanMessage(content=prompt)
+        ])
+        
+        return {"greeting": response.content.strip()}
+    except Exception as e:
+        print(f"Greeting generation error: {e}")
+        return {"greeting": "안녕하세요! 어떤 복지 정보를 찾아드릴까요?"}

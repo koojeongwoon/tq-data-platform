@@ -16,8 +16,7 @@ async def semantic_search(
     request: Request,
     q: str = Query(..., min_length=2, description="Search query"),
     source_type: Optional[str] = Query(None, description="Filter by source: central or regional"),
-    limit: int = Query(10, ge=1, le=100, description="Number of results to return"),
-    current_user: dict = Depends(get_current_user),
+    limit: int = Query(10, ge=1, le=100, description="Number of results to return")
 ):
     """
     Semantic search for welfare policies using multilingual-e5-large + BM25 hybrid search
@@ -32,41 +31,19 @@ async def semantic_search(
     - q="청년 창업" → Find youth entrepreneurship policies
     - q="어르신 건강" → Find elderly healthcare policies
     """
-    # Get embedding service from app state (pre-loaded at startup)
-    embedding_service = getattr(request.app.state, "embedding_service", None)
+    # Get qdrant service from app state (pre-loaded at startup)
+    qdrant_service = getattr(request.app.state, "qdrant_service", None)
 
-    if not embedding_service:
+    if not qdrant_service:
         raise HTTPException(
             status_code=503,
-            detail="Embedding service is not available. Server may still be loading."
+            detail="Search service is not available. Server may still be loading."
         )
 
-    # 1. Generate query embedding
+    # Search in Qdrant using hybrid search
     try:
-        query_vector = embedding_service.encode_query(q)
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate query embedding: {str(e)}"
-        )
-
-    # 2. Search in Qdrant
-    qdrant = QdrantClient()
-
-    # Build filters
-    filters = {}
-    if source_type:
-        if source_type not in ["central", "regional"]:
-            raise HTTPException(
-                status_code=400,
-                detail="source_type must be 'central' or 'regional'"
-            )
-        filters["source_type"] = source_type
-
-    try:
-        results = qdrant.search(
-            query_vector=query_vector,
-            filters=filters,
+        results = qdrant_service.hybrid_search(
+            query=q,
             limit=limit
         )
     except Exception as e:
@@ -75,19 +52,19 @@ async def semantic_search(
             detail=f"Search failed: {str(e)}"
         )
 
-    # 3. Format response
+    # Format response
     search_results = [
         SearchResult(
-            policy_id=result["id"],
-            score=result["score"],
-            title=result["metadata"].get("title", ""),
-            summary=result["metadata"].get("summary", ""),
-            ministry=result["metadata"].get("ministry", ""),
-            source_type=result["metadata"].get("source_type", ""),
-            ctpv_nm=result["metadata"].get("ctpv_nm"),
-            sgg_nm=result["metadata"].get("sgg_nm"),
-            phone=result["metadata"].get("phone"),
-            website=result["metadata"].get("website"),
+            policy_id=result.get("policy_id", ""),
+            score=result.get("score", 0),
+            title=result.get("title", ""),
+            summary=result.get("summary", ""),
+            ministry=result.get("ministry", ""),
+            source_type=result.get("source_type", ""),
+            ctpv_nm=result.get("ctpv_nm"),
+            sgg_nm=result.get("sgg_nm"),
+            phone=result.get("phone"),
+            website=result.get("website"),
         )
         for result in results
     ]

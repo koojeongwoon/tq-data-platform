@@ -14,7 +14,8 @@ Qdrant 벡터 데이터베이스를 활용한 하이브리드 시맨틱 검색�
 
 - **Dense Embedding**: `multilingual-e5-large` (의미 기반 검색)
 - **Sparse Embedding**: `BM25` (키워드 기반 검색)
-- **Hybrid Search**: Dense + Sparse 결합으로 정확도 향상
+- **Hybrid Search**: Dense + Sparse 결합 (RRF)
+- **Reranking**: `FlashRank` (Cross-Encoder)로 상위 결과 재순위화
 
 ### 파일 구조
 
@@ -146,16 +147,28 @@ multilingual-e5-large → Dense Vector (1024 dim)
 BM25 Tokenizer → Sparse Vector
 ```
 
-### 2. 하이브리드 검색
+### 2. 하이브리드 검색 및 필터링
 
 ```
 Qdrant Collection
     ↓
-Dense Search (의미 유사도) + Sparse Search (키워드 매칭)
+Dense Search + Sparse Search
     ↓
-RRF (Reciprocal Rank Fusion) 점수 결합
+RRF Fusion (Top 200)
     ↓
-상위 N개 결과 반환
+Region Filter: 사용자 지역 OR 전국(빈 값) 정책 포함
+```
+
+### 3. Reranking (재순위화)
+
+```
+Top Results
+    ↓
+FlashRank (ms-marco-Minilm-L-12-v2)
+    ↓
+질문-정책 관련도 정밀 채점 (Cross-Encoding)
+    ↓
+최종 상위 N개 반환
 ```
 
 ### 3. 결과 반환
